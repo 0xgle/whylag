@@ -1,0 +1,62 @@
+name: Release
+
+# Publishing a GitHub release with a tag like v0.2.0 builds installers for
+# Windows (NSIS + MSI), macOS (DMG, Apple Silicon and Intel) and Linux
+# (AppImage + deb) and attaches them to that release.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'v')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: ""
+          - os: macos-latest
+            args: "--target aarch64-apple-darwin"
+          - os: macos-latest
+            args: "--target x86_64-apple-darwin"
+          - os: ubuntu-22.04
+            args: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev patchelf
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install UI dependencies
+        run: npm ci --prefix ui
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: src-tauri
+          tauriScript: npx --prefix ../ui tauri
+          tagName: ${{ github.event.release.tag_name }}
+          releaseId: ${{ github.event.release.id }}
+          args: ${{ matrix.args }}
