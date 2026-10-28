@@ -4,7 +4,8 @@ name: Release
 # Windows (NSIS installer), macOS (DMG, Apple Silicon and Intel) and Linux
 # (AppImage + deb) and attaches them to that release.
 #
-# Pushing a tag like v0.2.0 creates that release (notes from
+# Running it by hand with a version, or pushing a tag like v0.2.0, creates that
+# release (notes from
 # .github/release-notes.md) and attaches the installers as well.
 on:
   release:
@@ -12,6 +13,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Publish as this version (e.g. v0.2.0). Leave empty for a test build."
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -30,9 +36,9 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "release" ]; then
             echo "id=${{ github.event.release.id }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "push" ]; then
-            tag="${GITHUB_REF_NAME}"
-            gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "WhyLag ${tag#v}" --notes-file .github/release-notes.md --verify-tag
+          elif [ "${{ github.event_name }}" = "push" ] || [ -n "${{ inputs.version }}" ]; then
+            tag="${{ inputs.version || github.ref_name }}"
+            gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "WhyLag ${tag#v}" --notes-file .github/release-notes.md --target "$GITHUB_SHA"
             echo "id=$(gh api repos/${{ github.repository }}/releases/tags/$tag -q .id)" >> "$GITHUB_OUTPUT"
           fi
 
@@ -90,7 +96,7 @@ jobs:
       # Manual runs (Actions → Release → Run workflow) attach the installers to
       # the run instead of a release, for testing before going public.
       - uses: actions/upload-artifact@v4
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.version == ''
         with:
           name: whylag-${{ runner.os }}-${{ strategy.job-index }}
           path: |
