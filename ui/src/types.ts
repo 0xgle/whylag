@@ -88,6 +88,35 @@ export interface Settings {
   contractedUpMbps: number | null;
   mlabConsent: boolean;
   coverageThresholdDbm: number;
+  autotestProfiles: AutoTestProfile[];
+  autotestProfile: string;
+}
+
+export interface AutoTestProfile {
+  name: string;
+  dhcpMs: number;
+  gatewayMs: number;
+  gatewayLossPct: number;
+  dnsMs: number;
+  internetMs: number;
+  wifiRssiDbm: number;
+  wifiSnrDb: number;
+  wifiUtilPct: number;
+  linkMbps: number;
+  targets: string[];
+}
+
+export type CheckStatus = "pass" | "warn" | "fail" | "skip";
+
+export interface AutoTestCheck {
+  id: string;
+  status: CheckStatus;
+  code: string;
+  value: number | null;
+  unit: string | null;
+  limit: number | null;
+  params: Record<string, unknown>;
+  order: number;
 }
 
 export type Material = "drywall" | "glass" | "wood" | "brick" | "concrete" | "metal" | "shaft";
@@ -486,4 +515,9 @@ export interface Diagnosis {
   };
   checked: string[];
   generatedMs: number;
+}
+
+export interface AutoTestRun extends JobBase {
+  profile: AutoTestProfile | null;
+  checks: AutoTestCheck[];
 }

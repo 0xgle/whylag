@@ -3,6 +3,7 @@ import { useEffect, type ComponentType } from "react";
 import {
   Activity,
   FileText,
+  ListChecks,
   Gauge,
   LayoutDashboard,
   Map,
@@ -27,6 +28,7 @@ import { PerformanceModule } from "./modules/performance/PerformanceModule";
 import { PathModule } from "./modules/path/PathModule";
 import { SecurityModule } from "./modules/security/SecurityModule";
 import { MonitorModule } from "./modules/monitor/MonitorModule";
+import { AutoTestModule } from "./modules/autotest/AutoTestModule";
 import { OverviewModule } from "./modules/overview/OverviewModule";
 import { ReportsModule } from "./modules/reports/ReportsModule";
 import { SettingsModule } from "./modules/settings/SettingsModule";
@@ -36,6 +38,7 @@ type NavEntry = { id: ModuleId; icon: ComponentType<{ size?: number }> } | "gap"
 
 const NAV: NavEntry[] = [
   { id: "overview", icon: LayoutDashboard },
+  { id: "autotest", icon: ListChecks },
   "gap",
   { id: "wifi", icon: Wifi },
   { id: "survey", icon: Map },
@@ -58,6 +61,7 @@ const MODULES: Partial<Record<ModuleId, ComponentType>> = {
   security: SecurityModule,
   monitor: MonitorModule,
   overview: OverviewModule,
+  autotest: AutoTestModule,
   reports: ReportsModule,
   settings: SettingsModule,
 };

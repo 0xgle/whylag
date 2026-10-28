@@ -32,6 +32,9 @@ pub struct Settings {
     pub mlab_consent: bool,
     /// RSSI (dBm) considered "good coverage" in survey and advisor.
     pub coverage_threshold_dbm: i32,
+    /// AutoTest limit profiles (one per site or client) and the one in use.
+    pub autotest_profiles: Vec<crate::autotest::Profile>,
+    pub autotest_profile: String,
 }
 
 impl Default for Settings {
@@ -46,6 +49,8 @@ impl Default for Settings {
             contracted_up_mbps: None,
             mlab_consent: false,
             coverage_threshold_dbm: -67,
+            autotest_profiles: vec![crate::autotest::Profile::default()],
+            autotest_profile: "Standard".into(),
         }
     }
 }

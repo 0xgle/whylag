@@ -4,6 +4,7 @@ import type { AppInfo, ScanResult, Settings } from "./types";
 
 export type ModuleId =
   | "overview"
+  | "autotest"
   | "wifi"
   | "survey"
   | "discovery"

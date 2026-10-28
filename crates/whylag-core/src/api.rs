@@ -28,6 +28,12 @@ struct PositionPx {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct AutoTestReq {
+    profile: Option<crate::autotest::Profile>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Tz {
     tz_offset_min: Option<i32>,
 }
@@ -246,6 +252,28 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
             .await
             .map_err(|e| ApiError::new(e, "peer test failed"))?;
             to_value(res)
+        }
+
+        "autotest.start" => {
+            // Explicit profile from the UI, else the selected saved one.
+            let req: AutoTestReq = params(p)?;
+            let settings = state.settings();
+            let profile = req
+                .profile
+                .or_else(|| {
+                    settings
+                        .autotest_profiles
+                        .iter()
+                        .find(|x| x.name == settings.autotest_profile)
+                        .cloned()
+                })
+                .unwrap_or_default();
+            to_value(crate::autotest::start(state.clone(), profile))
+        }
+        "autotest.status" => to_value(state.autotest.lock().clone()),
+        "autotest.stop" => {
+            crate::autotest::stop(state);
+            Ok(Value::Null)
         }
 
         "path.start" => {

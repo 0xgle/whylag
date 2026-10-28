@@ -11,6 +11,7 @@ pub mod state;
 pub mod util;
 
 pub mod advisor;
+pub mod autotest;
 pub mod discovery;
 pub mod monitor;
 pub mod net;
