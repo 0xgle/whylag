@@ -65,6 +65,26 @@ impl SimWorld {
         }
     }
 
+    /// The office APs as plannable virtual APs (floor-plan pixels), so the
+    /// predictive planner can be compared against the walked survey.
+    pub fn virtual_aps(&self) -> Vec<crate::survey::VirtualAp> {
+        let mut aps: Vec<crate::survey::VirtualAp> = Vec::new();
+        for r in self.radios.iter().filter(|r| !r.ap_name.is_empty() && r.ssid == "Acme-Office") {
+            let radio = crate::survey::VirtualRadio { band: r.band, channel: r.channel, width_mhz: r.width_mhz, eirp_dbm: r.eirp_dbm, enabled: true };
+            match aps.iter_mut().find(|a| a.name == r.ap_name) {
+                Some(ap) => ap.radios.push(radio),
+                None => aps.push(crate::survey::VirtualAp {
+                    id: r.ap_name.split_whitespace().next().unwrap_or("AP").to_string(),
+                    name: r.ap_name.to_string(),
+                    x: (r.x + MARGIN_M) * PX_PER_M,
+                    y: (r.y + MARGIN_M) * PX_PER_M,
+                    radios: vec![radio],
+                }),
+            }
+        }
+        aps
+    }
+
     pub fn info(&self) -> SimInfo {
         SimInfo { position: self.position, width_m: WIDTH_M, height_m: HEIGHT_M, floor_plan: plan::floor_plan(&self.walls) }
     }

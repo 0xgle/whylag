@@ -127,3 +127,88 @@ export interface ApiError {
   code: string;
   message: string;
 }
+
+// ---------- Survey ----------
+
+export interface Reading {
+  bssid: string;
+  ssid: string;
+  rssi: number;
+  channel: number;
+  band: Band | null;
+  widthMhz: number;
+  noise: number | null;
+  security: Security;
+}
+
+export interface Sample {
+  x: number;
+  y: number;
+  tMs: number;
+  readings: Reading[];
+  throughputMbps?: number | null;
+  latencyMs?: number | null;
+}
+
+export interface VirtualRadio {
+  band: Band;
+  channel: number;
+  widthMhz: number;
+  eirpDbm: number;
+  enabled: boolean;
+}
+
+export interface VirtualAp {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  radios: VirtualRadio[];
+}
+
+export type Layer = "signal" | "secondSignal" | "snr" | "apCount" | "coChannel" | "bestAp" | "throughput";
+export type SurveyMode = "measured" | "predicted";
+
+export interface SurveyProject {
+  version: 1;
+  name: string;
+  createdMs: number;
+  floorPlan: { name: string; imageDataUrl: string; widthPx: number; heightPx: number; metersPerPx: number | null };
+  samples: Sample[];
+  walls: Wall[];
+  aps: VirtualAp[];
+}
+
+export interface Heatmap {
+  cols: number;
+  rows: number;
+  cellPx: number;
+  layer: Layer;
+  mode: SurveyMode;
+  values: (number | null)[];
+  legend: { index: number; label: string; detail: string }[];
+  stats: {
+    cells: number;
+    coveredCells: number;
+    coverageRatio: number;
+    areaM2: number | null;
+    min: number | null;
+    max: number | null;
+    mean: number | null;
+  };
+}
+
+export interface ChannelPlan {
+  band: Band;
+  widthMhz: number;
+  assignments: { apId: string; apName: string; from: number | null; to: number }[];
+  costBefore: number;
+  costAfter: number;
+}
+
+export interface PlacementSuggestion {
+  x: number;
+  y: number;
+  coverageBefore: number;
+  coverageAfter: number;
+}

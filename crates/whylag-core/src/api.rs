@@ -27,6 +27,17 @@ struct PositionPx {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WaitMs {
+    wait_ms: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct Content {
+    content: String,
+}
+
+#[derive(Deserialize)]
 struct WriteText {
     path: String,
     content: String,
@@ -57,6 +68,26 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
         }
 
         "wifi.scan" => to_value(crate::wifi::scan(state).await?),
+        "wifi.scanFresh" => {
+            let w: WaitMs = params(p)?;
+            to_value(crate::wifi::scan_fresh(state, w.wait_ms.unwrap_or(3500)).await?)
+        }
+        "sim.aps" => to_value(state.sim.lock().virtual_aps()),
+
+        "project.autosave" => {
+            let c: Content = params(p)?;
+            let path = state.data_dir.join("autosave.whylag");
+            std::fs::create_dir_all(&state.data_dir)?;
+            // Write then rename so a crash never leaves a half-written project.
+            let tmp = path.with_extension("tmp");
+            std::fs::write(&tmp, c.content)?;
+            std::fs::rename(&tmp, &path)?;
+            Ok(Value::Null)
+        }
+        "project.loadAutosave" => match std::fs::read_to_string(state.data_dir.join("autosave.whylag")) {
+            Ok(text) => Ok(Value::String(text)),
+            Err(_) => Ok(Value::Null),
+        },
 
         "survey.heatmap" => {
             let req: crate::survey::HeatmapRequest = params(p)?;
@@ -76,6 +107,13 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
             // Only reached with a path the user picked in a native save dialog.
             let w: WriteText = params(p)?;
             std::fs::write(&w.path, w.content)?;
+            Ok(Value::Null)
+        }
+
+        "fs.writeBase64" => {
+            let w: WriteText = params(p)?;
+            let bytes = crate::util::base64_decode(&w.content).ok_or_else(|| ApiError::bad_params("invalid base64"))?;
+            std::fs::write(&w.path, bytes)?;
             Ok(Value::Null)
         }
 

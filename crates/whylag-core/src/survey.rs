@@ -733,6 +733,30 @@ pub fn suggest_placement(req: &PlacementRequest) -> Vec<PlacementSuggestion> {
         y += step_px;
     }
     let freq = rf::channel_to_freq(radio.channel, radio.band);
+    // Keep candidates inside the surveyed space (bounding box of the samples, or
+    // of the walls in a predictive plan) and slightly away from walls.
+    let points: Vec<(f64, f64)> = if !req.heatmap.samples.is_empty() {
+        req.heatmap.samples.iter().map(|s| (s.x, s.y)).collect()
+    } else {
+        req.heatmap.walls.iter().flat_map(|w| [(w.x1, w.y1), (w.x2, w.y2)]).collect()
+    };
+    let inset = 0.5 / mpp;
+    let bounds = if points.is_empty() {
+        (0.0, 0.0, req.heatmap.width_px, req.heatmap.height_px)
+    } else {
+        let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        for (x, y) in &points {
+            x0 = x0.min(*x);
+            y0 = y0.min(*y);
+            x1 = x1.max(*x);
+            y1 = y1.max(*y);
+        }
+        (x0 + inset, y0 + inset, x1 - inset, y1 - inset)
+    };
+    let clearance = 0.4 / mpp;
+    let near_wall = |x: f64, y: f64| {
+        req.heatmap.walls.iter().any(|w| point_segment_distance(x, y, w.x1, w.y1, w.x2, w.y2) < clearance)
+    };
     let mut scored: Vec<PlacementSuggestion> = candidates
         .into_iter()
         // Only places inside the mapped area.
@@ -740,6 +764,7 @@ pub fn suggest_placement(req: &PlacementRequest) -> Vec<PlacementSuggestion> {
             let (c, r) = ((x / base.cell_px) as usize, (y / base.cell_px) as usize);
             c < base.cols && r < base.rows && base.values[r * base.cols + c].is_some()
         })
+        .filter(|(x, y)| *x >= bounds.0 && *y >= bounds.1 && *x <= bounds.2 && *y <= bounds.3 && !near_wall(*x, *y))
         .map(|(x, y)| {
             let e = rf::Emitter { x: x * mpp, y: y * mpp, eirp_dbm: radio.eirp_dbm, freq_mhz: freq };
             let covered = cells
@@ -762,6 +787,13 @@ pub fn suggest_placement(req: &PlacementRequest) -> Vec<PlacementSuggestion> {
         }
     }
     out
+}
+
+fn point_segment_distance(px: f64, py: f64, x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
+    let (dx, dy) = (x2 - x1, y2 - y1);
+    let len2 = dx * dx + dy * dy;
+    let t = if len2 > 0.0 { (((px - x1) * dx + (py - y1) * dy) / len2).clamp(0.0, 1.0) } else { 0.0 };
+    ((px - (x1 + t * dx)).powi(2) + (py - (y1 + t * dy)).powi(2)).sqrt()
 }
 
 /// Built-in material list for the wall drawing tool (with dB loss per band).

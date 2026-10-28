@@ -165,9 +165,43 @@ pub fn base64(data: &[u8]) -> String {
     out
 }
 
+/// Decodes standard base64; whitespace is ignored. Returns `None` on bad input.
+pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(text.len() * 3 / 4);
+    let mut buf = 0u32;
+    let mut bits = 0;
+    for c in text.bytes().filter(|c| !c.is_ascii_whitespace()) {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' | b'-' => 62,
+            b'/' | b'_' => 63,
+            b'=' => break,
+            _ => return None,
+        } as u32;
+        buf = (buf << 6) | v;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((buf >> bits) as u8);
+            buf &= (1 << bits) - 1;
+        }
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn base64_round_trip() {
+        for s in [&b""[..], b"f", b"fo", b"foo", b"foobar", &[0u8, 255, 128, 7]] {
+            assert_eq!(base64_decode(&base64(s)).unwrap(), s);
+        }
+        assert!(base64_decode("@@").is_none());
+    }
 
     #[test]
     fn base64_matches_rfc4648() {

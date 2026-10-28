@@ -212,6 +212,18 @@ pub async fn scan(state: &AppState) -> ApiResult<ScanResult> {
     Ok(result)
 }
 
+/// Triggers a scan and waits for the adapter to finish before reading results,
+/// so a survey sample reflects the spot where it was taken. Windows and
+/// NetworkManager refresh their caches 2-4 s after a scan request.
+pub async fn scan_fresh(state: &AppState, wait_ms: u64) -> ApiResult<ScanResult> {
+    let first = scan(state).await?;
+    if first.source == ScanSource::Simulator {
+        return Ok(first);
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(wait_ms.min(8000))).await;
+    scan(state).await
+}
+
 /// Fills derived fields that scanners leave empty.
 pub fn enrich(result: &mut ScanResult) {
     for bss in &mut result.networks {

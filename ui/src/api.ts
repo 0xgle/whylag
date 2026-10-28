@@ -90,3 +90,19 @@ export async function openFile(accept: string, asDataUrl = false): Promise<{ nam
     input.click();
   });
 }
+
+/** Saves a data URL (e.g. a PNG export) to a file chosen by the user. */
+export async function saveDataUrl(defaultName: string, dataUrl: string, filters?: { name: string; extensions: string[] }[]) {
+  if (isTauri) {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const path = await save({ defaultPath: defaultName, filters });
+    if (!path) return null;
+    await call("fs.writeBase64", { path, content: dataUrl.slice(dataUrl.indexOf(",") + 1) });
+    return path;
+  }
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = defaultName;
+  a.click();
+  return defaultName;
+}

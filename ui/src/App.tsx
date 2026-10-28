@@ -20,6 +20,7 @@ import { Logo } from "./components/Logo";
 import { LinkReadout } from "./components/LinkReadout";
 import { Notice } from "./components/ui";
 import { WifiModule } from "./modules/wifi/WifiModule";
+import { SurveyModule } from "./modules/survey/SurveyModule";
 import { SettingsModule } from "./modules/settings/SettingsModule";
 import { Placeholder } from "./modules/Placeholder";
 
@@ -42,6 +43,7 @@ const NAV: NavEntry[] = [
 
 const MODULES: Partial<Record<ModuleId, ComponentType>> = {
   wifi: WifiModule,
+  survey: SurveyModule,
   settings: SettingsModule,
 };
 
