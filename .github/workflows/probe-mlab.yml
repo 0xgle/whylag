@@ -5,9 +5,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          for u in "v0/EU/PL/asn/AS5617/2026/histogram_daily_stats.json" "v0/EU/PL/2026/histogram_daily_stats.json"; do
-            curl -s -o f.json -w "%{http_code}" "https://statistics.measurementlab.net/$u" > code.txt
-            echo "::notice title=$u::status $(cat code.txt) size $(wc -c < f.json)"
-            echo "::notice title=head::$(head -c 900 f.json | tr '\n' ' ')"
-            python3 -c "import json;d=json.load(open('f.json'));print('::notice title=shape::',type(d).__name__,len(d), list(d[0].keys()) if isinstance(d,list) else list(d.keys())[:20])" || true
+          for u in "v0/EU/PL/2025/histogram_daily_stats.json" "v0/EU/PL/2024/histogram_daily_stats.json" "v0/EU/PL/asn/AS5617/2025/histogram_daily_stats.json" "v0/asn/AS5617/2025/histogram_daily_stats.json" "v0/EU/PL/2025/" "v0/"; do
+            code=$(curl -s -o f.json -w "%{http_code}" "https://statistics.measurementlab.net/$u")
+            echo "::notice title=$u::status $code size $(wc -c < f.json) $(head -c 400 f.json | tr '\n' ' ')"
           done
+          for b in statistics-mlab-oti statistics-mlab-sandbox; do
+            code=$(curl -s -o l.xml -w "%{http_code}" "https://storage.googleapis.com/$b?prefix=v0/EU/PL/&delimiter=/")
+            echo "::notice title=list $b::status $code $(grep -o '<Prefix>[^<]*</Prefix>' l.xml | head -40 | tr '\n' ' ')"
+          done
+          dig +short CNAME statistics.measurementlab.net | sed 's/^/::notice title=cname::/'
