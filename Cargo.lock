@@ -5359,7 +5359,7 @@ dependencies = [
 
 [[package]]
 name = "whylag"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5376,7 +5376,7 @@ dependencies = [
 
 [[package]]
 name = "whylag-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "dns-lookup",
@@ -5399,7 +5399,7 @@ dependencies = [
 
 [[package]]
 name = "whylag-devserver"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "serde_json",

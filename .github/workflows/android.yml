@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       NDK_VERSION: 27.2.12479018
+      HAS_KEY: ${{ secrets.ANDROID_KEYSTORE != '' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -99,14 +100,16 @@ jobs:
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" sign --ks whylag.jks --ks-pass "pass:$pass" --ks-key-alias whylag --out WhyLag-android.apk aligned.apk
           ls -la WhyLag-android.apk
 
+      # Without the permanent key the APK stays a test build: an app signed
+      # with a throwaway key cannot be updated later without reinstalling.
       - uses: actions/upload-artifact@v4
-        if: inputs.release_id == ''
+        if: inputs.release_id == '' || env.HAS_KEY != 'true'
         with:
           name: whylag-android
           path: WhyLag-android.apk
 
       - name: Attach to release
-        if: inputs.release_id != ''
+        if: inputs.release_id != '' && env.HAS_KEY == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

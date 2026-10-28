@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/whylag-core", "crates/whylag-devserver", "src-tauri", "src-tauri/plugins/wifiscan"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Mateusz Glegoła"]
 license = "LicenseRef-Proprietary"
