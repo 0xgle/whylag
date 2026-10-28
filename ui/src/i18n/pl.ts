@@ -687,4 +687,9 @@ export const pl: Dict = {
   "survey.tput.help": "Dla pomiarów w punkcie. Na drugim komputerze włącz „Przyjmuj testy na tym komputerze” w module Wydajność i wpisz pokazany tam kod parowania. W biurze demo jest to symulowane.",
 
   "placeholder.soon": "Ten moduł jest w budowie.",
+  "update.available": "Dostępny jest WhyLag {version}.",
+  "update.install": "Zaktualizuj i uruchom ponownie",
+  "update.installing": "Aktualizuję…",
+  "update.later": "Później",
+  "update.failed": "Nie udało się zainstalować aktualizacji. Pobierz ją ze strony wydań.",
 };

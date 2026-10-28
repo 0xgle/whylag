@@ -686,6 +686,11 @@ export const en = {
   "survey.tput.help": "For point measurements. On the other computer, turn on “Accept tests on this computer” in Performance and enter the pairing code it shows. The demo office simulates it.",
 
   "placeholder.soon": "This module is being built.",
+  "update.available": "WhyLag {version} is available.",
+  "update.install": "Update and restart",
+  "update.installing": "Updating…",
+  "update.later": "Later",
+  "update.failed": "The update could not be installed. Download it from the releases page.",
 };
 
 export type Dict = typeof en;

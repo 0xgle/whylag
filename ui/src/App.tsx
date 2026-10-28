@@ -1,3 +1,4 @@
+import { UpdateBanner } from "./components/UpdateBanner";
 import { useEffect, type ComponentType } from "react";
 import {
   Activity,
@@ -148,6 +149,7 @@ export function App() {
         <LinkReadout />
       </header>
       <main className="main">
+        <UpdateBanner />
         {bridgeError && (
           <div style={{ marginBottom: 16 }}>
             <Notice tone="crit">{t("notice.bridge")}</Notice>

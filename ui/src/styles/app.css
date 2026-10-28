@@ -1809,3 +1809,21 @@ table.data th.num {
   letter-spacing: 0.06em;
   font-variant-numeric: tabular-nums;
 }
+
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--panel);
+  font-weight: 500;
+}
+
+.update-banner span {
+  flex: 1;
+  min-width: 200px;
+}
