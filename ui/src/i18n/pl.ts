@@ -776,4 +776,12 @@ export const pl: Dict = {
   "autotest.code.targetDown": "Nie odpowiada.",
   "autotest.code.targetUnresolved": "Nie znaleziono takiej nazwy.",
   "autotest.code.dhcpNoAnswer": "Żaden serwer DHCP nie odpowiedział. Ten komputer ma adres, być może stały, ale nowe urządzenia mogą go nie dostać.",
+  "perf.peer.kindPeer": "Drugi WhyLag",
+  "perf.peer.kindIperf": "Serwer iperf3",
+  "perf.peer.iperfHelp": "Działa z każdym standardowym serwerem iperf3 (iperf3 -s), np. na NAS-ie, routerze albo serwerze.",
+  "perf.peer.iperfHost": "Adres serwera, np. 192.168.1.10 lub nas.local:5201",
+  "perf.peer.iperfBusy": "Serwer iperf3 jest zajęty innym testem. Spróbuj za chwilę.",
+  "perf.peer.iperfFailed": "Test iperf3 się nie udał. Sprawdź, czy na serwerze działa iperf3 w wersji 3 i czy port jest otwarty.",
+  "perf.peer.unresolved": "Nie znaleziono takiego adresu.",
+  "survey.tput.kind": "Test z",
 };

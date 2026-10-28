@@ -76,7 +76,11 @@ struct Enable {
 #[derive(Deserialize)]
 struct Host {
     host: String,
+    /// WhyLag pairing code (peer tests).
     code: Option<String>,
+    /// "peer" (default) or "iperf3".
+    kind: Option<String>,
+    port: Option<u16>,
 }
 
 #[derive(Deserialize)]
@@ -225,11 +229,12 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
         }
         "perf.peerTest" => {
             let r: Host = params(p)?;
-            to_value(
-                crate::perf::peer::run_test(&r.host, r.code.as_deref().unwrap_or(""))
-                    .await
-                    .map_err(|e| ApiError::new(e, "peer test failed"))?,
-            )
+            let res = if r.kind.as_deref() == Some("iperf3") {
+                crate::perf::iperf3::run_test(&r.host, r.port, 5).await
+            } else {
+                crate::perf::peer::run_test(&r.host, r.code.as_deref().unwrap_or("")).await
+            };
+            to_value(res.map_err(|e| ApiError::new(e, "peer test failed"))?)
         }
         // Short throughput probe for survey points: peer test or simulated.
         "survey.throughput" => {
@@ -244,14 +249,17 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
                     connect_ms: 2.0,
                 });
             }
-            let res = crate::perf::peer::run_test_for(
-                &r.host,
-                r.code.as_deref().unwrap_or(""),
-                std::time::Duration::from_secs(2),
-            )
-            .await
-            .map_err(|e| ApiError::new(e, "peer test failed"))?;
-            to_value(res)
+            let res = if r.kind.as_deref() == Some("iperf3") {
+                crate::perf::iperf3::run_test(&r.host, r.port, 2).await
+            } else {
+                crate::perf::peer::run_test_for(
+                    &r.host,
+                    r.code.as_deref().unwrap_or(""),
+                    std::time::Duration::from_secs(2),
+                )
+                .await
+            };
+            to_value(res.map_err(|e| ApiError::new(e, "peer test failed"))?)
         }
 
         "autotest.start" => {

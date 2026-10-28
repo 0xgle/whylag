@@ -396,11 +396,20 @@ export function SurveySidebar({
               </label>
               {s.measureThroughput && !isSim && (
                 <label className="side-field">
+                  <span>{t("survey.tput.kind")}</span>
+                  <select className="input" value={s.throughputKind} onChange={(e) => s.set({ throughputKind: e.target.value as "peer" | "iperf3" })}>
+                    <option value="peer">{t("perf.peer.kindPeer")}</option>
+                    <option value="iperf3">{t("perf.peer.kindIperf")}</option>
+                  </select>
+                </label>
+              )}
+              {s.measureThroughput && !isSim && (
+                <label className="side-field">
                   <span>{t("survey.tput.host")}</span>
                   <input className="input" value={s.throughputHost} onChange={(e) => s.set({ throughputHost: e.target.value })} placeholder="192.168.1.20" />
                 </label>
               )}
-              {s.measureThroughput && !isSim && (
+              {s.measureThroughput && !isSim && s.throughputKind === "peer" && (
                 <label className="side-field">
                   <span>{t("perf.peer.code")}</span>
                   <input className="input" inputMode="numeric" value={s.throughputCode} onChange={(e) => s.set({ throughputCode: e.target.value })} placeholder="123 456" />

@@ -775,6 +775,14 @@ export const en = {
   "autotest.code.targetDown": "Does not answer.",
   "autotest.code.targetUnresolved": "Name not found.",
   "autotest.code.dhcpNoAnswer": "No DHCP server answered. This computer has an address, possibly a fixed one, but new devices may not get one.",
+  "perf.peer.kindPeer": "Another WhyLag",
+  "perf.peer.kindIperf": "iperf3 server",
+  "perf.peer.iperfHelp": "Works with any standard iperf3 server (iperf3 -s), for example on a NAS, a router or a server.",
+  "perf.peer.iperfHost": "Server address, e.g. 192.168.1.10 or nas.local:5201",
+  "perf.peer.iperfBusy": "The iperf3 server is busy with another test. Try again in a moment.",
+  "perf.peer.iperfFailed": "The iperf3 test failed. Check that the server runs iperf3 version 3 and the port is open.",
+  "perf.peer.unresolved": "That address could not be found.",
+  "survey.tput.kind": "Test against",
 };
 
 export type Dict = typeof en;

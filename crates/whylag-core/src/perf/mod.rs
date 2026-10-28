@@ -2,6 +2,7 @@
 //! DNS resolver benchmark with hijacking detection, internet speed with
 //! bufferbloat (M-Lab ndt7) and a LAN throughput test between two WhyLags.
 
+pub mod iperf3;
 pub mod ndt7;
 pub mod peer;
 

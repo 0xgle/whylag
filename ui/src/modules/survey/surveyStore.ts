@@ -30,6 +30,7 @@ interface SurveyState {
   measureThroughput: boolean;
   throughputHost: string;
   throughputCode: string;
+  throughputKind: "peer" | "iperf3";
 
   setProject: (p: SurveyProject | null, recordUndo?: boolean) => void;
   update: (fn: (p: SurveyProject) => SurveyProject) => void;
@@ -66,6 +67,7 @@ export const useSurvey = create<SurveyState>((set, get) => ({
   measureThroughput: false,
   throughputHost: "",
   throughputCode: "",
+  throughputKind: "peer",
 
   setProject: (project, recordUndo = false) => {
     const prev = get().project;

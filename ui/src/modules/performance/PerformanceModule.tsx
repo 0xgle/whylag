@@ -6,7 +6,7 @@ import { fmtNumber, translateMaybe, useLang, useT, type Key } from "../../i18n";
 import type { LatencyStats, PerfRun } from "../../types";
 import { useJob } from "../../lib/useJob";
 import { peerErrorKey } from "../../lib/peer";
-import { Badge, Intro, Notice, Panel, Progress, Sparkline } from "../../components/ui";
+import { Badge, Intro, Notice, Panel, Progress, Segmented, Sparkline } from "../../components/ui";
 import { TimeChart } from "../../components/TimeChart";
 
 const GRADE_TONE: Record<string, string> = {
@@ -163,6 +163,7 @@ function PeerPanel() {
   const [status, setStatus] = useState<PeerStatus | null>(null);
   const [host, setHost] = useState("");
   const [code, setCode] = useState("");
+  const [kind, setKind] = useState<"peer" | "iperf3">("peer");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ downloadMbps: number; uploadMbps: number } | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -176,7 +177,7 @@ function PeerPanel() {
     setErr(null);
     setResult(null);
     try {
-      setResult(await call("perf.peerTest", { host: host.trim(), code }));
+      setResult(await call("perf.peerTest", { host: host.trim(), code, kind }));
     } catch (e) {
       setErr(t(peerErrorKey((e as CallError).code)));
     } finally {
@@ -189,11 +190,24 @@ function PeerPanel() {
         <p className="small muted" style={{ margin: 0 }}>
           {t("perf.peer.body")}
         </p>
-        <label className="check">
+        <Segmented<"peer" | "iperf3">
+          value={kind}
+          onChange={(v) => {
+            setKind(v);
+            setErr(null);
+            setResult(null);
+          }}
+          options={[
+            { value: "peer", label: t("perf.peer.kindPeer") },
+            { value: "iperf3", label: t("perf.peer.kindIperf") },
+          ]}
+        />
+        {kind === "iperf3" && <p className="small muted" style={{ margin: 0 }}>{t("perf.peer.iperfHelp")}</p>}
+        {kind === "peer" && <label className="check">
           <input type="checkbox" checked={!!status?.listening} onChange={(e) => toggle(e.target.checked)} />
           {t("perf.peer.accept")}
-        </label>
-        {status?.listening && (
+        </label>}
+        {kind === "peer" && status?.listening && (
           <div className="small">
             {t("perf.peer.listening", { addresses: status.addresses.join(", ") })}
             {status.code && (
@@ -206,9 +220,19 @@ function PeerPanel() {
         )}
         {status?.error && <Notice tone="warn">{status.error}</Notice>}
         <div className="row">
-          <input className="input" placeholder={t("perf.peer.host")} aria-label={t("perf.peer.host")} value={host} onChange={(e) => setHost(e.target.value)} style={{ width: 200 }} />
-          <input className="input" inputMode="numeric" placeholder={t("perf.peer.code")} aria-label={t("perf.peer.code")} value={code} onChange={(e) => setCode(e.target.value)} style={{ width: 120 }} />
-          <button className="btn" disabled={!host.trim() || code.replace(/\D/g, "").length !== 6 || busy} onClick={test}>
+          <input
+            className="input"
+            placeholder={kind === "iperf3" ? t("perf.peer.iperfHost") : t("perf.peer.host")}
+            aria-label={t("perf.peer.host")}
+            value={host}
+            onChange={(e) => setHost(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && !busy && host.trim() && (kind === "iperf3" || code.replace(/\D/g, "").length === 6) && test()}
+            style={{ width: 220 }}
+          />
+          {kind === "peer" && (
+            <input className="input" inputMode="numeric" placeholder={t("perf.peer.code")} aria-label={t("perf.peer.code")} value={code} onChange={(e) => setCode(e.target.value)} style={{ width: 120 }} />
+          )}
+          <button className="btn" disabled={!host.trim() || (kind === "peer" && code.replace(/\D/g, "").length !== 6) || busy} onClick={test}>
             <Network size={15} />
             {t("perf.peer.run")}
           </button>
@@ -352,7 +376,7 @@ export function PerformanceModule() {
           )}
         </Panel>
       )}
-      {(hasData || running) && <PeerPanel />}
+      <PeerPanel />
     </div>
   );
 }

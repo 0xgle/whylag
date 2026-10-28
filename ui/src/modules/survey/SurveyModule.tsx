@@ -276,11 +276,11 @@ export function SurveyModule() {
       try {
         await call("sim.setPosition", { xPx: x, yPx: y });
         const scan = await call<ScanResult>("wifi.scanFresh", { waitMs: 3500 });
-        const { measureThroughput, throughputHost, throughputCode } = useSurvey.getState();
+        const { measureThroughput, throughputHost, throughputCode, throughputKind } = useSurvey.getState();
         let throughputMbps: number | null = null;
         if (measureThroughput && (isSim || throughputHost.trim())) {
           try {
-            const r = await call<{ downloadMbps: number }>("survey.throughput", { host: throughputHost.trim(), code: throughputCode });
+            const r = await call<{ downloadMbps: number }>("survey.throughput", { host: throughputHost.trim(), code: throughputCode, kind: throughputKind });
             throughputMbps = r.downloadMbps;
           } catch (e) {
             setError(t(peerErrorKey((e as CallError).code)));
