@@ -99,7 +99,7 @@ Run *Actions → Release → Run workflow* with a version such as `v0.2.0` (or p
 
 ## Privacy
 
-All analysis runs locally. The only external services are the ones you start: the speed test uses [M-Lab](https://www.measurementlab.net/), which publishes test results (including the IP address) as open data, and WhyLag asks for consent before the first speed test. The provider ranking is opt-in in the app (on by default in the web test, with a visible checkbox) and stores only the measured numbers plus the provider, country and city that Cloudflare sees for the connection; no IP address or identifier is kept.
+All analysis runs locally. The only external services are the ones you start: the speed test uses [M-Lab](https://www.measurementlab.net/), which publishes test results (including the IP address) as open data, and WhyLag asks for consent before the first speed test. The provider ranking is opt-in in the app (on by default in the web test, with a visible checkbox) and stores only the measured numbers, the hour, and the provider and country that Cloudflare sees for the connection; no IP address, city or identifier is kept. A connection can add a few results a day (counted with a salted hash whose salt is deleted daily), so one person cannot move a provider.
 
 ## License
 

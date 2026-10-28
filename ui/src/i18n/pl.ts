@@ -844,7 +844,8 @@ export const pl: Dict = {
   "overlay.cause.offline": "Brak połączenia",
   "settings.ranking": "Ranking operatorów",
   "settings.ranking.share": "Dodawaj moje wyniki testu prędkości do publicznego rankingu operatorów",
-  "settings.ranking.help": "Anonimowo: wysyłane są tylko zmierzone liczby, a ranking zapisuje operatora, kraj i miasto tak, jak widzi je Cloudflare. Adres IP nie jest zapisywany.",
+  "settings.ranking.help": "Anonimowo: wysyłane są tylko zmierzone liczby, a ranking zapisuje operatora i kraj tak, jak widzi je Cloudflare. Adres IP ani miasto nie są zapisywane.",
   "notice.locationPermission.android": "Android pokazuje pobliskie sieci Wi-Fi tylko aplikacjom z dostępem do lokalizacji. Zezwól WhyLag na lokalizację w ustawieniach systemu i wróć.",
   "notice.wifiOff": "Wi-Fi jest wyłączone na tym urządzeniu.",
+  "source.android": "Android",
 };

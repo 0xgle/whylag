@@ -94,6 +94,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           releaseId: ${{ needs.release.outputs.id }}
+          # Four jobs editing one latest.json at once can drop platforms; the
+          # updater job below writes it once, after all of them.
+          includeUpdaterJson: false
           args: ${{ matrix.args }} ${{ secrets.TAURI_SIGNING_PRIVATE_KEY == '' && '--config src-tauri/tauri.no-updater.json' || '' }}
 
       # Manual runs (Actions → Release → Run workflow) attach the installers to
@@ -108,6 +111,28 @@ jobs:
             target/**/release/bundle/appimage/*.AppImage
             target/**/release/bundle/deb/*.deb
           if-no-files-found: ignore
+
+  # The update feed, built once from the signed packages of every platform.
+  updater:
+    needs: [release, build]
+    if: needs.release.outputs.id != ''
+    runs-on: ubuntu-latest
+    env:
+      SIGNING: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+        if: env.SIGNING != ''
+      - name: Write latest.json
+        if: env.SIGNING != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag=$(gh api repos/${{ github.repository }}/releases/${{ needs.release.outputs.id }} -q .tag_name)
+          gh api repos/${{ github.repository }}/releases/${{ needs.release.outputs.id }}/assets --paginate -q '.[].name' > names.txt
+          mkdir -p sigs
+          gh release download "$tag" -D sigs -p "*.sig"
+          node packaging/latest-json.mjs "$tag" sigs names.txt
+          gh release upload "$tag" latest.json --clobber
 
   # The Android APK, attached to the same release.
   android:

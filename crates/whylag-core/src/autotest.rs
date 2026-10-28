@@ -165,10 +165,22 @@ pub fn start(state: Arc<AppState>, profile: Profile) -> AutoTestRun {
     state.autotest_handle.cancel.store(false, Ordering::SeqCst);
     let st = state.clone();
     tokio::spawn(async move {
-        let result = if st.use_simulator() {
-            crate::util::catch_job(simulate(st.clone(), profile)).await
-        } else {
-            crate::util::catch_job(run(st.clone(), profile)).await
+        let job = async {
+            if st.use_simulator() {
+                crate::util::catch_job(simulate(st.clone(), profile)).await
+            } else {
+                crate::util::catch_job(run(st.clone(), profile)).await
+            }
+        };
+        // Stop takes effect at once: the remaining probes are dropped.
+        let cancelled = async {
+            while !st.autotest_handle.cancel.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        };
+        let result = tokio::select! {
+            r = job => r,
+            _ = cancelled => Ok(()),
         };
         let mut run = st.autotest.lock();
         if let Err(e) = result {
@@ -307,9 +319,8 @@ async fn dhcp_offers(mac: [u8; 6], window: Duration) -> Result<Vec<Offer>, Strin
     use socket2::{Domain, Protocol, Socket, Type};
     let sock =
         Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).map_err(|e| e.to_string())?;
-    sock.set_reuse_address(true).map_err(|e| e.to_string())?;
-    #[cfg(unix)]
-    let _ = sock.set_reuse_port(true);
+    // No address reuse: sharing port 68 with the system's DHCP client could
+    // steal its lease replies. If the port is taken, the check is skipped.
     sock.set_broadcast(true).map_err(|e| e.to_string())?;
     sock.set_nonblocking(true).map_err(|e| e.to_string())?;
     sock.bind(&SocketAddr::from(([0, 0, 0, 0], 68)).into())

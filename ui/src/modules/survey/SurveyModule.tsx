@@ -206,12 +206,17 @@ export function SurveyModule() {
       set({ foundAps: [] });
       return;
     }
+    // A reply that arrives after the floor or data changed is dropped.
+    let alive = true;
     const id = setTimeout(() => {
       call<LocatedAp[]>("survey.locateAps", { samples: project.samples, metersPerPx: project.floorPlan.metersPerPx })
-        .then((aps) => set({ foundAps: aps }))
+        .then((aps) => alive && set({ foundAps: aps }))
         .catch(() => {});
     }, 400);
-    return () => clearTimeout(id);
+    return () => {
+      alive = false;
+      clearTimeout(id);
+    };
   }, [project?.samples, project?.floorPlan.metersPerPx, showFoundAps, set]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Suggestions are stale once the data changes.

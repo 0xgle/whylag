@@ -75,6 +75,8 @@ pub struct RoamHandle {
 const KEEP_SAMPLES: usize = 3000;
 const PING_EVERY: Duration = Duration::from_millis(100);
 const WIFI_EVERY_MS: u64 = 500;
+/// A forgotten test stops by itself.
+const MAX_RUN_MS: u64 = 30 * 60_000;
 
 /// Turns the sample stream into events. Pure, so it is testable.
 #[derive(Default)]
@@ -211,7 +213,6 @@ async fn run(state: Arc<AppState>) -> Result<(), String> {
     state.roam.lock().gateway = gateway.map(|g| g.to_string());
     let mut tracker = Tracker::default();
     let mut samples: VecDeque<RoamSample> = VecDeque::new();
-    let mut last_wifi = 0u64;
     let mut current: (Option<String>, Option<i32>, Option<u32>) = (None, None, None);
     let started = now_ms();
     // Events wait ~2 s for the router answers after them before their gap is final.
@@ -219,29 +220,48 @@ async fn run(state: Arc<AppState>) -> Result<(), String> {
     // Simulated handover stall in progress (until this time).
     let mut sim_stall_until = 0u64;
 
+    // Wi-Fi is read in its own task: a scan can take from milliseconds to
+    // seconds (macOS), and the router pings must not wait for it, or the wait
+    // itself would look like a stall.
+    let readings: Arc<parking_lot::Mutex<VecDeque<(u64, Option<crate::wifi::WifiInterface>)>>> =
+        Default::default();
+    let poller = {
+        let st = state.clone();
+        let readings = readings.clone();
+        tokio::spawn(async move {
+            while !st.roam_handle.cancel.load(Ordering::SeqCst) {
+                let tick = std::time::Instant::now();
+                let reading = if simulated {
+                    let mut sim = st.sim.lock();
+                    sim.position = sim_walk((now_ms() - started) as f64 / 1000.0);
+                    Some(sim.wifi_scan())
+                } else {
+                    crate::wifi::scan_for_analysis(&st).await
+                };
+                let iface =
+                    reading.and_then(|r| r.interfaces.into_iter().find(|i| i.state == "connected"));
+                readings.lock().push_back((now_ms(), iface));
+                tokio::time::sleep(
+                    Duration::from_millis(WIFI_EVERY_MS).saturating_sub(tick.elapsed()),
+                )
+                .await;
+            }
+        })
+    };
+
     while !state.roam_handle.cancel.load(Ordering::SeqCst) {
         let tick = std::time::Instant::now();
         let now = now_ms();
-        let mut event = None;
-        if now - last_wifi >= WIFI_EVERY_MS {
-            last_wifi = now;
-            let reading = if simulated {
-                let mut sim = state.sim.lock();
-                let (x, y) = sim_walk((now - started) as f64 / 1000.0);
-                sim.position = (x, y);
-                Some(sim.wifi_scan())
-            } else {
-                crate::wifi::scan_for_analysis(&state).await
-            };
-            let iface = reading.as_ref().and_then(|r| {
-                r.interfaces
-                    .iter()
-                    .find(|i| i.state == "connected")
-                    .cloned()
-            });
+        if now - started > MAX_RUN_MS {
+            break;
+        }
+        let mut events = Vec::new();
+        let fresh: Vec<_> = readings.lock().drain(..).collect();
+        for (t, iface) in fresh {
             if let Some(i) = &iface {
-                if state.roam.lock().ssid.is_none() {
-                    state.roam.lock().ssid = i.ssid.clone();
+                let mut run = state.roam.lock();
+                if run.ssid.is_none() {
+                    run.ssid = i.ssid.clone();
                 }
             }
             current = (
@@ -249,21 +269,23 @@ async fn run(state: Arc<AppState>) -> Result<(), String> {
                 iface.as_ref().and_then(|i| i.rssi),
                 iface.as_ref().and_then(|i| i.channel),
             );
-            event = tracker.wifi(RoamSample {
-                t: now,
+            if let Some(e) = tracker.wifi(RoamSample {
+                t,
                 bssid: current.0.clone(),
                 rssi: current.1,
                 channel: current.2,
                 gw_ms: None,
-            });
-            if simulated && event.as_ref().is_some_and(|e| e.kind == "roam") {
-                // Fast roaming (802.11r) is ~30 ms, a full re-auth 200-600 ms.
-                let stall = if rand::random::<f64>() < 0.6 {
-                    40
-                } else {
-                    200 + rand::random::<u64>() % 400
-                };
-                sim_stall_until = now + stall;
+            }) {
+                if simulated && e.kind == "roam" {
+                    // Fast roaming (802.11r) is ~30 ms, a full re-auth 200-600 ms.
+                    let stall = if rand::random::<f64>() < 0.6 {
+                        40
+                    } else {
+                        200 + rand::random::<u64>() % 400
+                    };
+                    sim_stall_until = now + stall;
+                }
+                events.push(e);
             }
         }
         let gw_ms = match gateway {
@@ -287,7 +309,7 @@ async fn run(state: Arc<AppState>) -> Result<(), String> {
         }
         {
             let mut run = state.roam.lock();
-            if let Some(e) = event {
+            for e in events {
                 run.events.push(e);
                 unfinished.push(run.events.len() - 1);
             }
@@ -308,6 +330,7 @@ async fn run(state: Arc<AppState>) -> Result<(), String> {
         }
         tokio::time::sleep(PING_EVERY.saturating_sub(tick.elapsed())).await;
     }
+    poller.abort();
     Ok(())
 }
 

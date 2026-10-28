@@ -30,13 +30,19 @@ pub struct LiveState {
     sim: Option<crate::sim::monitor::Live>,
     gateway: Option<(u64, Option<Ipv4Addr>)>,
     wifi: Option<(u64, Option<i32>, Option<String>)>,
+    wifi_refreshing: bool,
     target: Option<(String, Option<IpAddr>)>,
 }
 
 pub type LiveHandle = Mutex<LiveState>;
 
 const GATEWAY_TTL_MS: u64 = 30_000;
-const WIFI_TTL_MS: u64 = 3_000;
+/// macOS reads Wi-Fi through `system_profiler`, which takes seconds and CPU.
+const WIFI_TTL_MS: u64 = if cfg!(target_os = "macos") {
+    30_000
+} else {
+    3_000
+};
 
 async fn rtt(ip: IpAddr, timeout: Duration) -> Option<f64> {
     if let IpAddr::V4(v4) = ip {
@@ -51,7 +57,7 @@ async fn rtt(ip: IpAddr, timeout: Duration) -> Option<f64> {
     }
 }
 
-pub async fn sample(state: &AppState, target: Option<String>) -> LiveSample {
+pub async fn sample(state: &std::sync::Arc<AppState>, target: Option<String>) -> LiveSample {
     let target = target
         .filter(|t| !t.trim().is_empty())
         .unwrap_or_else(|| "1.1.1.1".into());
@@ -109,7 +115,36 @@ pub async fn sample(state: &AppState, target: Option<String>) -> LiveSample {
             ip
         }
     };
-    let need_wifi = !matches!(state.live.lock().wifi, Some((at, _, _)) if now - at < WIFI_TTL_MS);
+    // Refresh the Wi-Fi reading in the background: the probe answers with the
+    // cached value right away instead of waiting for a scan.
+    let refresh = {
+        let mut live = state.live.lock();
+        let stale = !matches!(live.wifi, Some((at, _, _)) if now - at < WIFI_TTL_MS);
+        let start = stale && !live.wifi_refreshing;
+        if start {
+            live.wifi_refreshing = true;
+        }
+        start
+    };
+    if refresh {
+        let st = state.clone();
+        tokio::spawn(async move {
+            let scan = crate::wifi::scan_for_analysis(&st).await;
+            let iface = scan.as_ref().and_then(|s| {
+                s.interfaces
+                    .iter()
+                    .find(|i| i.state == "connected")
+                    .cloned()
+            });
+            let mut live = st.live.lock();
+            live.wifi = Some((
+                now_ms(),
+                iface.as_ref().and_then(|i| i.rssi),
+                iface.and_then(|i| i.ssid),
+            ));
+            live.wifi_refreshing = false;
+        });
+    }
 
     let timeout = Duration::from_millis(800);
     let gw = async {
@@ -124,27 +159,8 @@ pub async fn sample(state: &AppState, target: Option<String>) -> LiveSample {
             None => None,
         }
     };
-    let wifi = async {
-        if !need_wifi {
-            return None;
-        }
-        let scan = crate::wifi::scan_for_analysis(state).await;
-        let iface = scan.as_ref().and_then(|s| {
-            s.interfaces
-                .iter()
-                .find(|i| i.state == "connected")
-                .cloned()
-        });
-        Some((
-            iface.as_ref().and_then(|i| i.rssi),
-            iface.and_then(|i| i.ssid),
-        ))
-    };
-    let (gateway_ms, target_ms, fresh) = tokio::join!(gw, tg, wifi);
-    let mut live = state.live.lock();
-    if let Some((rssi, ssid)) = fresh {
-        live.wifi = Some((now, rssi, ssid));
-    }
+    let (gateway_ms, target_ms) = tokio::join!(gw, tg);
+    let live = state.live.lock();
     let (rssi, ssid) = live
         .wifi
         .as_ref()

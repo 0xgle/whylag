@@ -4,9 +4,11 @@
  *   POST /submit   anonymous speed/lag result from the web test or the app
  *   GET  /ranking?country=PL   operators ranked by lag under load
  *
- * Nothing that identifies a person is stored: no IP address, no ID, no cookie.
- * The operator (ASN), country and city come from Cloudflare's own lookup of
- * the connection; the address is only used in memory for the rate limit.
+ * Nothing that identifies a person is stored: no IP address, no ID, no cookie,
+ * no city, and times are rounded to the hour. The operator (ASN) and country
+ * come from Cloudflare's own lookup of the connection. The address is used in
+ * memory for the rate limit and, as a hash with a salt that is deleted the
+ * next day, for a daily cap of a few results per connection.
  */
 
 interface Env {
@@ -26,6 +28,9 @@ function cfOf(req: Request, env: Env): IncomingRequestCfProperties | undefined {
 }
 
 const DAYS = 30;
+/** Results one connection may add per day. */
+const DAILY_CAP = 3;
+const HOUR = 3_600_000;
 /** Operators with fewer results are left out: too few to judge. */
 const MIN_RESULTS = 15;
 
@@ -62,6 +67,40 @@ export function cleanOrg(org: string): string {
     .replace(/[,.\s]+$/, "")
     .replace(/\s{2,}/g, " ")
     .trim();
+}
+
+/** IPv4 address, or the /64 network of an IPv6 address. */
+export function submitterKey(ip: string): string {
+  if (!ip.includes(":")) return ip;
+  // Expand "::" so the first four groups are the network part.
+  const [head, tail = ""] = ip.split("::");
+  const h = head ? head.split(":") : [];
+  const t = tail ? tail.split(":") : [];
+  const groups = [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t];
+  return groups.slice(0, 4).map((g) => g.toLowerCase().replace(/^0+(?=.)/, "")).join(":") + "::/64";
+}
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+async function sha256(text: string) {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Counts one submission against the connection's daily cap. */
+async function takeQuota(env: Env, who: string): Promise<boolean> {
+  const day = today();
+  let salt = (await env.DB.prepare("SELECT value FROM salt WHERE day = ?").bind(day).first<{ value: string }>())?.value;
+  if (!salt) {
+    const fresh = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
+    await env.DB.prepare("INSERT OR IGNORE INTO salt (day, value) VALUES (?, ?)").bind(day, fresh).run();
+    salt = (await env.DB.prepare("SELECT value FROM salt WHERE day = ?").bind(day).first<{ value: string }>())!.value;
+  }
+  const key = await sha256(`${salt}|${who}`);
+  const row = await env.DB.prepare("INSERT INTO quota (day, key, n) VALUES (?, ?, 1) ON CONFLICT(day, key) DO UPDATE SET n = n + 1 RETURNING n")
+    .bind(day, key)
+    .first<{ n: number }>();
+  return (row?.n ?? 1) <= DAILY_CAP;
 }
 
 function cors(origin: string | null, env: Env): Record<string, string> {
@@ -129,7 +168,9 @@ export function rank(rows: { asn: number; org: string; down_mbps: number; up_mbp
 
 async function rebuild(env: Env) {
   const since = Date.now() - DAYS * 86_400_000;
-  const countries = await env.DB.prepare("SELECT DISTINCT country FROM results WHERE ts >= ?").bind(since).all<{ country: string }>();
+  // Countries with recent results, plus any that still have a stored ranking
+  // (so a country whose results all aged out gets an empty ranking).
+  const countries = await env.DB.prepare("SELECT DISTINCT country FROM results WHERE ts >= ? UNION SELECT country FROM ranking").bind(since).all<{ country: string }>();
   for (const { country } of countries.results) {
     const rows = await env.DB.prepare("SELECT asn, org, down_mbps, up_mbps, idle_ms, loaded_ms FROM results WHERE country = ? AND ts >= ? ORDER BY ts")
       .bind(country, since)
@@ -140,8 +181,11 @@ async function rebuild(env: Env) {
       .bind(country, Date.now(), JSON.stringify({ country, days: DAYS, minResults: MIN_RESULTS, total, operators }))
       .run();
   }
-  // Raw results older than the window are not needed any more.
-  await env.DB.prepare("DELETE FROM results WHERE ts < ?").bind(Date.now() - 2 * DAYS * 86_400_000).run();
+  // Raw results older than the window are not needed any more, and yesterday's
+  // salts and counters must go so the daily keys cannot be recomputed.
+  await env.DB.prepare("DELETE FROM results WHERE ts < ?").bind(Date.now() - DAYS * 86_400_000).run();
+  await env.DB.prepare("DELETE FROM quota WHERE day < ?").bind(today()).run();
+  await env.DB.prepare("DELETE FROM salt WHERE day < ?").bind(today()).run();
 }
 
 export default {
@@ -152,7 +196,9 @@ export default {
 
     if (req.method === "POST" && url.pathname === "/submit") {
       const ip = (env.DEV_FAKE_CF === "1" && req.headers.get("X-Test-Ip")) || req.headers.get("CF-Connecting-IP") || "";
-      if (env.LIMITER && !(await env.LIMITER.limit({ key: ip })).success) return json({ ok: false, error: "rateLimited" }, 429, headers);
+      // One person on IPv6 controls a whole /64, so that is the unit.
+      const who = submitterKey(ip);
+      if (env.LIMITER && !(await env.LIMITER.limit({ key: who })).success) return json({ ok: false, error: "rateLimited" }, 429, headers);
       const body = await req.json().catch(() => null);
       const s = validate(body);
       if (!s) return json({ ok: false, error: "invalid" }, 400, headers);
@@ -161,9 +207,9 @@ export default {
       const country = String(cf?.country ?? "").toUpperCase();
       if (!asn || !/^[A-Z]{2}$/.test(country)) return json({ ok: false, error: "noNetwork" }, 400, headers);
       const org = cleanOrg(String(cf?.asOrganization ?? `AS${asn}`)) || `AS${asn}`;
-      const city = typeof cf?.city === "string" ? cf.city.slice(0, 60) : null;
-      await env.DB.prepare("INSERT INTO results (ts, country, asn, org, city, source, down_mbps, up_mbps, idle_ms, loaded_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .bind(Date.now(), country, asn, org, city, s.source, s.downMbps, s.upMbps, s.idleMs, s.loadedMs)
+      if (!(await takeQuota(env, who))) return json({ ok: false, error: "dailyLimit", country, org }, 429, headers);
+      await env.DB.prepare("INSERT INTO results (ts, country, asn, org, city, source, down_mbps, up_mbps, idle_ms, loaded_ms) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)")
+        .bind(Math.floor(Date.now() / HOUR) * HOUR, country, asn, org, s.source, s.downMbps, s.upMbps, s.idleMs, s.loadedMs)
         .run();
       return json({ ok: true, country, org }, 200, headers);
     }

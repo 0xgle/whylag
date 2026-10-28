@@ -260,7 +260,7 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
                 });
             }
             let res = if r.kind.as_deref() == Some("iperf3") {
-                crate::perf::iperf3::run_test(&r.host, r.port, 2).await
+                crate::perf::iperf3::run_download(&r.host, r.port, 2).await
             } else {
                 crate::perf::peer::run_test_for(
                     &r.host,

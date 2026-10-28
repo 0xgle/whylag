@@ -105,6 +105,9 @@ pub struct SpeedResult {
     /// (seconds since phase start, Mb/s)
     pub down_series: Vec<(f64, f64)>,
     pub up_series: Vec<(f64, f64)>,
+    /// Both phases ran their full length (no early end or network error).
+    #[serde(default)]
+    pub complete: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -462,7 +465,7 @@ async fn run(state: Arc<AppState>, req: PerfRequest) -> Result<(), String> {
         };
         match ndt7::run(&state.perf_handle.cancel, progress).await {
             Ok(result) => {
-                if state.settings().share_ranking {
+                if state.settings().share_ranking && result.complete {
                     tokio::spawn(share_to_ranking(result.clone()));
                 }
                 set(&state, |r| r.speed = Some(result))

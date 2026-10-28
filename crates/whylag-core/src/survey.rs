@@ -1007,8 +1007,11 @@ pub fn ap_key(bssid: &str) -> String {
     if parts.len() != 6 {
         return bssid.to_lowercase();
     }
+    // Keep the first byte apart from its locally-administered bit, so only
+    // the derived BSSIDs of one radio collapse, not other vendors' devices.
     format!(
-        "{:02x}:{:02x}:{:02x}:{:02x}:{:x}x",
+        "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:x}x",
+        parts[0] & !0x02,
         parts[1],
         parts[2],
         parts[3],
@@ -1021,7 +1024,11 @@ pub fn ap_key(bssid: &str) -> String {
 const LOCATE_N: f64 = 3.0;
 
 pub fn locate_aps(req: &LocateRequest) -> Vec<LocatedAp> {
-    let mpp = req.meters_per_px.unwrap_or(0.05);
+    // A wrong calibration must not turn the search into minutes of work.
+    let mpp = req
+        .meters_per_px
+        .filter(|m| m.is_finite() && *m > 0.001 && *m < 2.0)
+        .unwrap_or(0.05);
     // key -> per-sample strongest reading of that AP
     let mut groups: HashMap<String, (Vec<(f64, f64, i32)>, Vec<String>, Vec<String>, Vec<u32>)> =
         HashMap::new();
@@ -1083,20 +1090,28 @@ pub fn locate_aps(req: &LocateRequest) -> Vec<LocatedAp> {
                 .map(|(r, l)| (r - (p0 - l)).powi(2))
                 .sum::<f64>()
         };
-        let mut best = (f64::MAX, 0.0, 0.0);
-        let step = 0.5;
-        let mut y = y0 - pad;
-        while y <= y1 + pad {
-            let mut x = x0 - pad;
-            while x <= x1 + pad {
-                let c = cost(x, y);
-                if c < best.0 {
-                    best = (c, x, y);
+        // Coarse pass over at most ~120×120 spots, then a 0.25 m pass around
+        // the best one: bounded work whatever the plan size.
+        let search = |cx0: f64, cy0: f64, cx1: f64, cy1: f64, step: f64| {
+            let mut best = (f64::MAX, cx0, cy0);
+            let mut y = cy0;
+            while y <= cy1 {
+                let mut x = cx0;
+                while x <= cx1 {
+                    let c = cost(x, y);
+                    if c < best.0 {
+                        best = (c, x, y);
+                    }
+                    x += step;
                 }
-                x += step;
+                y += step;
             }
-            y += step;
-        }
+            best
+        };
+        let span = ((x1 - x0).max(y1 - y0) + 2.0 * pad).max(1.0);
+        let coarse = (span / 120.0).max(0.5);
+        let c = search(x0 - pad, y0 - pad, x1 + pad, y1 + pad, coarse);
+        let best = search(c.1 - coarse, c.2 - coarse, c.1 + coarse, c.2 + coarse, 0.25);
         let near = pts
             .iter()
             .map(|p| (p.0 - best.1).hypot(p.1 - best.2))

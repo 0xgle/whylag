@@ -73,7 +73,10 @@ async fn read_json(ctrl: &mut TcpStream) -> Result<Value, String> {
         return Err("iperfProtocol".into());
     }
     let mut buf = vec![0u8; n];
-    ctrl.read_exact(&mut buf).await.map_err(|_| "iperfClosed")?;
+    tokio::time::timeout(Duration::from_secs(10), ctrl.read_exact(&mut buf))
+        .await
+        .map_err(|_| "iperfTimeout")?
+        .map_err(|_| "iperfClosed")?;
     serde_json::from_slice(&buf).map_err(|_| "iperfProtocol".to_string())
 }
 
@@ -186,7 +189,21 @@ async fn one_direction(addr: SocketAddr, secs: u64, reverse: bool) -> Result<(f6
 }
 
 /// Download then upload against `host[:port]`.
+/// Download only (survey points need one number, quickly).
+pub async fn run_download(host: &str, port: Option<u16>, secs: u64) -> Result<PeerResult, String> {
+    run(host, port, secs, false).await
+}
+
 pub async fn run_test(host: &str, port: Option<u16>, secs: u64) -> Result<PeerResult, String> {
+    run(host, port, secs, true).await
+}
+
+async fn run(
+    host: &str,
+    port: Option<u16>,
+    secs: u64,
+    with_upload: bool,
+) -> Result<PeerResult, String> {
     let (name, port) = match (host.rsplit_once(':'), port) {
         (Some((h, p)), None) if p.parse::<u16>().is_ok() && !h.contains(':') => {
             (h.to_string(), p.parse().unwrap())
@@ -197,9 +214,13 @@ pub async fn run_test(host: &str, port: Option<u16>, secs: u64) -> Result<PeerRe
     let addr = SocketAddr::new(ip, port);
     let secs = secs.clamp(1, 30);
     let (down, connect_ms) = one_direction(addr, secs, true).await?;
-    // Servers need a moment to accept the next test.
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let (up, _) = one_direction(addr, secs, false).await?;
+    let up = if with_upload {
+        // Servers need a moment to accept the next test.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        one_direction(addr, secs, false).await?.0
+    } else {
+        0.0
+    };
     Ok(PeerResult {
         host: format!("{name}:{port}"),
         download_mbps: down,

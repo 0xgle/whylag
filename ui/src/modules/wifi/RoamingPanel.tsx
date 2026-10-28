@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { call } from "../../api";
 import { Footprints, Square } from "lucide-react";
 import { fmtNumber, useLang, useT } from "../../i18n";
 import type { RoamEvent, RoamRun } from "../../types";
@@ -43,6 +44,12 @@ export function RoamingPanel() {
   const lang = useLang();
   const { run, start, stop } = useJob<RoamRun>("roam", 700);
   const running = !!run?.running;
+  // Leaving the Wi-Fi screen ends the walk: it pings ten times a second.
+  const runningRef = useRef(running);
+  runningRef.current = running;
+  useEffect(() => () => {
+    if (runningRef.current) void call("roam.stop").catch(() => {});
+  }, []);
   const events = run?.events ?? [];
   const roams = events.filter((e) => e.kind === "roam");
   const sticky = roams.filter((e) => e.sticky).length;

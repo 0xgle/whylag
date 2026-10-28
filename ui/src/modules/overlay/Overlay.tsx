@@ -55,7 +55,10 @@ export function diagnose(samples: LiveSample[]): { level: "good" | "fair" | "bad
   const bad = tg.loss > 5 || (tg.med ?? 0) > 120 || (tg.jit ?? 0) > 30;
   const fair = !bad && (tg.loss > 0 || (tg.med ?? 0) > 60 || (tg.jit ?? 0) > 12);
   if (!bad && !fair) return { level: "good", cause: "ok" };
-  const localTrouble = gw.loss > 3 || (gw.jit ?? 0) > 10 || (gw.med ?? 0) > 25;
+  // No router answers at all while the target does: the router is unknown or
+  // ignores probes, which says nothing about where the lag is.
+  const gwKnown = samples.some((s) => s.gatewayMs != null);
+  const localTrouble = gwKnown && (gw.loss > 3 || (gw.jit ?? 0) > 10 || (gw.med ?? 0) > 25);
   const weak = last?.rssi != null && last.rssi < -70;
   const cause: Cause = localTrouble || weak ? (last?.wifi ? "wifi" : "home") : "isp";
   return { level: bad ? "bad" : "fair", cause };

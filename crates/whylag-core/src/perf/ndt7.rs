@@ -195,6 +195,7 @@ pub async fn run(
             );
         }
     }
+    let down_full = started.elapsed() + Duration::from_millis(1500) >= PHASE;
     let _ = ws.close(None).await;
     stop.store(true, Ordering::Relaxed);
     let loaded_down = pinger.await.unwrap_or_default();
@@ -261,6 +262,7 @@ pub async fn run(
             );
         }
     }
+    let up_full = started.elapsed() + Duration::from_millis(1500) >= PHASE;
     let _ = tokio::time::timeout(Duration::from_secs(2), sink.send(Message::Close(None))).await;
     // Wait briefly for the server's final count, then make sure the reader
     // (and its socket) is gone even if the server never closes.
@@ -283,6 +285,10 @@ pub async fn run(
     if let (Some(idle), Some(loaded)) = (result.idle_latency_ms, worst_loaded) {
         result.grade = Some(bufferbloat_grade(idle, loaded).to_string());
     }
+    if cancel.load(Ordering::Relaxed) {
+        return Err("cancelled".into());
+    }
+    result.complete = down_full && up_full;
     Ok(result)
 }
 

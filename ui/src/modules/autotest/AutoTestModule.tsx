@@ -71,6 +71,17 @@ function ProfileEditor({ profile, onSave, onCancel, takenNames }: { profile: Aut
   const t = useT();
   const [p, setP] = useState(profile);
   const [targets, setTargets] = useState(profile.targets.join("\n"));
+  // Fields are edited as text ("-", "0." are valid on the way to a number)
+  // and parsed when saving; an unparsable field keeps its previous value.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const parsed = (): AutoTestProfile => {
+    const out = { ...p };
+    for (const [k, v] of Object.entries(drafts)) {
+      const n = parseFloat(v.replace(",", "."));
+      if (Number.isFinite(n)) (out as unknown as Record<string, number>)[k] = n;
+    }
+    return out;
+  };
   const num = (key: keyof AutoTestProfile, label: Key, unit: string) => (
     <Field label={t(label)}>
       <span className="row" style={{ gap: 6 }}>
@@ -78,11 +89,8 @@ function ProfileEditor({ profile, onSave, onCancel, takenNames }: { profile: Aut
           className="input"
           style={{ width: 100 }}
           inputMode="decimal"
-          value={String(p[key])}
-          onChange={(e) => {
-            const n = parseFloat(e.target.value.replace(",", "."));
-            setP({ ...p, [key]: Number.isFinite(n) ? n : 0 });
-          }}
+          value={drafts[key] ?? String(p[key])}
+          onChange={(e) => setDrafts({ ...drafts, [key]: e.target.value })}
         />
         <span className="muted small">{unit}</span>
       </span>
@@ -114,7 +122,7 @@ function ProfileEditor({ profile, onSave, onCancel, takenNames }: { profile: Aut
           <button
             className="btn btn-primary"
             disabled={!p.name.trim() || clash}
-            onClick={() => onSave({ ...p, name: p.name.trim(), targets: targets.split(/\n|,/).map((s) => s.trim()).filter(Boolean) })}
+            onClick={() => onSave({ ...parsed(), name: p.name.trim(), targets: targets.split(/\n|,/).map((s) => s.trim()).filter(Boolean) })}
           >
             {t("autotest.save")}
           </button>
