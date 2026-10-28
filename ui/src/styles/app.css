@@ -1919,3 +1919,17 @@ table.data th.num {
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 12px;
 }
+
+.roam-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.roam-stats b {
+  font-family: var(--font-readout);
+  font-size: 22px;
+  color: var(--ink);
+}

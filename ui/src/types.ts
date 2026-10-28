@@ -521,3 +521,32 @@ export interface AutoTestRun extends JobBase {
   profile: AutoTestProfile | null;
   checks: AutoTestCheck[];
 }
+
+export interface RoamSample {
+  t: number;
+  bssid: string | null;
+  rssi: number | null;
+  channel: number | null;
+  gwMs: number | null;
+}
+
+export interface RoamEvent {
+  t: number;
+  kind: "roam" | "disconnect" | "reconnect";
+  from: string | null;
+  to: string | null;
+  fromRssi: number | null;
+  toRssi: number | null;
+  fromChannel: number | null;
+  toChannel: number | null;
+  gapMs: number | null;
+  sticky: boolean;
+  slow: boolean;
+}
+
+export interface RoamRun extends JobBase {
+  ssid: string | null;
+  gateway: string | null;
+  events: RoamEvent[];
+  samples: RoamSample[];
+}

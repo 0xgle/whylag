@@ -19,6 +19,7 @@ pub mod oui;
 pub mod path;
 pub mod perf;
 pub mod rf;
+pub mod roaming;
 pub mod security;
 pub mod sim;
 pub mod survey;

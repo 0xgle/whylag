@@ -10,6 +10,7 @@ import { displaySsid, seriesColor } from "../../lib/signal";
 import { ChannelGraph } from "./ChannelGraph";
 import { NetworkTable } from "./NetworkTable";
 import { BssDrawer } from "./BssDrawer";
+import { RoamingPanel } from "./RoamingPanel";
 
 type BandFilter = "all" | Band;
 
@@ -143,6 +144,8 @@ export function WifiModule() {
       <Panel bodyClass="">
         <NetworkTable networks={filtered} selected={selected} onToggle={toggle} onOpen={setOpen} grouped={grouped} />
       </Panel>
+
+      <RoamingPanel />
 
       {openBss && <BssDrawer bss={openBss} all={networks} onClose={() => setOpen(null)} />}
     </div>

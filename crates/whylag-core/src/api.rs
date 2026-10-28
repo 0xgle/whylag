@@ -262,6 +262,13 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
             to_value(res.map_err(|e| ApiError::new(e, "peer test failed"))?)
         }
 
+        "roam.start" => to_value(crate::roaming::start(state.clone())),
+        "roam.status" => to_value(state.roam.lock().clone()),
+        "roam.stop" => {
+            crate::roaming::stop(state);
+            Ok(Value::Null)
+        }
+
         "autotest.start" => {
             // Explicit profile from the UI, else the selected saved one.
             let req: AutoTestReq = params(p)?;
