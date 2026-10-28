@@ -1,0 +1,109 @@
+/* WhyLag design tokens.
+   A measuring instrument on drafting paper: cool paper ground, ink text,
+   one ultramarine accent for interaction, and a signal scale reserved for data. */
+
+:root {
+  --paper: #edf0f3;
+  --rail: #e3e7ec;
+  --panel: #ffffff;
+  --panel-2: #f6f8fa;
+  --ink: #17202b;
+  --ink-2: #4a5563;
+  --ink-3: #7d8794;
+  --rule: #d5dbe2;
+  --rule-strong: #b9c2cc;
+  --accent: #2433c9;
+  --accent-ink: #ffffff;
+  --accent-soft: #e5e8fb;
+  --focus: #2433c9;
+
+  /* Signal scale (data only, never chrome). */
+  --sig-excellent: #12805a;
+  --sig-good: #3fa34d;
+  --sig-fair: #c99a12;
+  --sig-poor: #d9632b;
+  --sig-bad: #c0263d;
+
+  --info-bg: #e9eefb;
+  --info-ink: #233a8a;
+  --warn-bg: #fdf3dc;
+  --warn-ink: #7a5600;
+  --crit-bg: #fbe6e8;
+  --crit-ink: #8f1d2e;
+  --ok-bg: #e3f4ea;
+  --ok-ink: #145c3d;
+
+  --font: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --font-readout: "Barlow Semi Condensed", "Barlow", "Segoe UI", sans-serif;
+
+  --r-panel: 10px;
+  --r-control: 6px;
+  --r-chip: 3px;
+
+  --rail-w: 216px;
+  --header-h: 76px;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #141b24;
+    --rail: #10161e;
+    --panel: #1b2430;
+    --panel-2: #212c3a;
+    --ink: #e6ebf1;
+    --ink-2: #aab4c1;
+    --ink-3: #7c8796;
+    --rule: #2c3846;
+    --rule-strong: #3d4b5c;
+    --accent: #8792ff;
+    --accent-ink: #10142e;
+    --accent-soft: #252d55;
+    --focus: #a9b1ff;
+    --sig-excellent: #2fbf86;
+    --sig-good: #6cc56f;
+    --sig-fair: #e4b532;
+    --sig-poor: #f08048;
+    --sig-bad: #f0566b;
+    --info-bg: #1f2a4a;
+    --info-ink: #b9c6f5;
+    --warn-bg: #3a3017;
+    --warn-ink: #f2d389;
+    --crit-bg: #42202a;
+    --crit-ink: #f6b3bf;
+    --ok-bg: #173628;
+    --ok-ink: #9fe0bd;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper: #141b24;
+  --rail: #10161e;
+  --panel: #1b2430;
+  --panel-2: #212c3a;
+  --ink: #e6ebf1;
+  --ink-2: #aab4c1;
+  --ink-3: #7c8796;
+  --rule: #2c3846;
+  --rule-strong: #3d4b5c;
+  --accent: #8792ff;
+  --accent-ink: #10142e;
+  --accent-soft: #252d55;
+  --focus: #a9b1ff;
+  --sig-excellent: #2fbf86;
+  --sig-good: #6cc56f;
+  --sig-fair: #e4b532;
+  --sig-poor: #f08048;
+  --sig-bad: #f0566b;
+  --info-bg: #1f2a4a;
+  --info-ink: #b9c6f5;
+  --warn-bg: #3a3017;
+  --warn-ink: #f2d389;
+  --crit-bg: #42202a;
+  --crit-ink: #f6b3bf;
+  --ok-bg: #173628;
+  --ok-ink: #9fe0bd;
+  color-scheme: dark;
+}

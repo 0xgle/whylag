@@ -1,0 +1,15 @@
+[package]
+name = "whylag-devserver"
+description = "HTTP bridge that serves the WhyLag core to a browser during development"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+whylag-core = { path = "../whylag-core" }
+tokio.workspace = true
+serde_json.workspace = true
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
