@@ -52,11 +52,11 @@ function AdviceItem({ a }: { a: Advice }) {
   );
 }
 
-function StatCard({ label, value, sub, color, onClick }: { label: string; value: string; sub?: string; color?: string; onClick?: () => void }) {
+function StatCard({ label, value, sub, color, onClick, empty }: { label: string; value: string; sub?: string; color?: string; onClick?: () => void; empty?: boolean }) {
   return (
     <button className="stat-card" onClick={onClick} disabled={!onClick}>
       <span className="stat-label">{label}</span>
-      <span className="stat-value" style={{ color }}>
+      <span className={empty ? "stat-empty" : "stat-value"} style={{ color }}>
         {value}
       </span>
       {sub && <span className="stat-sub">{sub}</span>}
@@ -243,6 +243,7 @@ export function OverviewModule() {
           <StatCard
             label={t("overview.card.wifi")}
             value={s.rssi != null ? `${s.rssi} dBm` : t("overview.card.notMeasured")}
+            empty={s.rssi == null}
             sub={s.ssid ? `${s.ssid}${s.channel ? `, ch ${s.channel}` : ""}` : undefined}
             color={s.rssi != null ? qualityColor[quality(s.rssi)] : undefined}
             onClick={() => setModule("wifi")}
@@ -250,18 +251,20 @@ export function OverviewModule() {
           <StatCard
             label={t("overview.card.speed")}
             value={s.downloadMbps != null ? `${fmtNumber(lang, s.downloadMbps)} / ${fmtNumber(lang, s.uploadMbps ?? 0)}` : t("overview.card.notMeasured")}
+            empty={s.downloadMbps == null}
             sub={s.downloadMbps != null ? `Mb/s${s.bufferbloat ? `, ${t("perf.bloat.grade", { grade: s.bufferbloat })}` : ""}` : undefined}
             onClick={() => setModule("performance")}
           />
           <StatCard
             label={t("overview.card.latency")}
             value={s.internetLatencyMs != null ? `${fmtNumber(lang, s.internetLatencyMs)} ms` : t("overview.card.notMeasured")}
+            empty={s.internetLatencyMs == null}
             sub={s.gatewayLatencyMs != null ? `${t("perf.latency.gateway")}: ${fmtNumber(lang, s.gatewayLatencyMs, 1)} ms` : undefined}
             onClick={() => setModule("performance")}
           />
-          <StatCard label={t("overview.card.devices")} value={s.devices != null ? String(s.devices) : t("overview.card.notMeasured")} onClick={() => setModule("discovery")} />
-          <StatCard label={t("overview.card.security")} value={s.securityScore != null ? `${s.securityScore}/100` : t("overview.card.notMeasured")} onClick={() => setModule("security")} />
-          <StatCard label={t("overview.card.incidents")} value={s.incidents24h != null ? String(s.incidents24h) : t("overview.card.notMeasured")} onClick={() => setModule("monitor")} />
+          <StatCard label={t("overview.card.devices")} value={s.devices != null ? String(s.devices) : t("overview.card.notMeasured")} empty={s.devices == null} onClick={() => setModule("discovery")} />
+          <StatCard label={t("overview.card.security")} value={s.securityScore != null ? `${s.securityScore}/100` : t("overview.card.notMeasured")} empty={s.securityScore == null} onClick={() => setModule("security")} />
+          <StatCard label={t("overview.card.incidents")} value={s.incidents24h != null ? String(s.incidents24h) : t("overview.card.notMeasured")} empty={s.incidents24h == null} onClick={() => setModule("monitor")} />
         </div>
       )}
 

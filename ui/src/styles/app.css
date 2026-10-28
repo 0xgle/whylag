@@ -1791,3 +1791,9 @@ table.data th.num {
   border-radius: var(--r-panel);
   background: #fff;
 }
+
+.stat-empty {
+  font-size: 14px;
+  color: var(--ink-3);
+  padding: 6px 0 4px;
+}
