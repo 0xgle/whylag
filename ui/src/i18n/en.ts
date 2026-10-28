@@ -844,6 +844,8 @@ export const en = {
   "settings.ranking": "Provider ranking",
   "settings.ranking.share": "Add my speed test results to the public provider ranking",
   "settings.ranking.help": "Anonymous: only the measured numbers are sent, and the ranking keeps your provider, country and city as Cloudflare sees them. No IP address is stored.",
+  "notice.locationPermission.android": "Android only shows nearby Wi-Fi networks to apps with location access. Allow location for WhyLag in the system settings, then come back.",
+  "notice.wifiOff": "Wi-Fi is turned off on this device.",
 };
 
 export type Dict = typeof en;

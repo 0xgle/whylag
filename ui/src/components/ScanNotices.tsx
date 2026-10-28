@@ -18,6 +18,7 @@ export function ScanNotices() {
   const lang = useLang();
   const scan = useApp((s) => s.scan);
   const scanError = useApp((s) => s.scanError);
+  const android = useApp((s) => s.appInfo?.os === "android");
   const notices: N[] = [...(scan?.notices ?? [])];
   if (scanError) notices.push({ code: scanError.code, detail: scanError.message });
   // When we fell back to the simulator, fold the reason into that one notice
@@ -38,14 +39,14 @@ export function ScanNotices() {
           key={n.code}
           tone={TONE[n.code] ?? "info"}
           action={
-            n.code === "locationPermission" ? (
+            n.code === "locationPermission" && !android ? (
               <button className="btn btn-sm" onClick={() => openExternal("ms-settings:privacy-location")}>
                 {t("notice.locationPermission.action")}
               </button>
             ) : undefined
           }
         >
-          {translateMaybe(lang, `notice.${n.code}`, n.detail || n.code)}
+          {translateMaybe(lang, `notice.${n.code}${n.code === "locationPermission" && android ? ".android" : ""}`, n.detail || n.code)}
           {n.code === "fellBackToSimulator" && reasons.length > 0 && (
             <span className="small" style={{ opacity: 0.8 }}>
               {" "}

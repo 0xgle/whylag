@@ -61,7 +61,7 @@ export interface WifiInterface {
   security: Security | null;
 }
 
-export type ScanSource = "windowsNative" | "linuxIw" | "linuxNmcli" | "macos" | "simulator";
+export type ScanSource = "windowsNative" | "linuxIw" | "linuxNmcli" | "macos" | "android" | "simulator";
 
 export interface Notice {
   code: string;

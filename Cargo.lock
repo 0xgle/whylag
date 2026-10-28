@@ -4486,6 +4486,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-wifiscan"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
 name = "tauri-runtime"
 version = "2.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5359,6 +5369,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-process",
  "tauri-plugin-updater",
+ "tauri-plugin-wifiscan",
  "tokio",
  "whylag-core",
 ]

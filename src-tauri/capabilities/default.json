@@ -3,14 +3,11 @@
   "identifier": "default",
   "description": "Main window permissions",
   "windows": [
-    "main",
-    "overlay"
+    "main"
   ],
   "permissions": [
     "core:default",
     "opener:default",
-    "updater:default",
-    "process:allow-restart",
     {
       "identifier": "opener:allow-open-url",
       "allow": [
@@ -18,8 +15,6 @@
           "url": "ms-settings:*"
         }
       ]
-    },
-    "core:window:allow-start-dragging",
-    "core:window:allow-close"
+    }
   ]
 }

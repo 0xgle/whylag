@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/whylag-core", "crates/whylag-devserver", "src-tauri"]
+members = ["crates/whylag-core", "crates/whylag-devserver", "src-tauri", "src-tauri/plugins/wifiscan"]
 
 [workspace.package]
 version = "0.1.0"

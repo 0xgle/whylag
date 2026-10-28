@@ -1,5 +1,6 @@
 //! Wi-Fi scanning: data model, OS scanners and the simulator bridge.
 
+pub mod android;
 pub mod ie;
 
 #[cfg(target_os = "linux")]
@@ -155,6 +156,7 @@ pub enum ScanSource {
     LinuxIw,
     LinuxNmcli,
     Macos,
+    Android,
     Simulator,
 }
 
@@ -176,9 +178,22 @@ pub struct ScanResult {
     pub notices: Vec<Notice>,
 }
 
+/// A platform scanner supplied by the app shell (Android, where Wi-Fi is only
+/// reachable from Kotlin). Takes priority over the built-in scanners.
+pub type ExternalScanner = Box<dyn Fn(bool) -> ApiResult<ScanResult> + Send + Sync>;
+static EXTERNAL: std::sync::OnceLock<ExternalScanner> = std::sync::OnceLock::new();
+
+/// Installs the external scanner (once, at startup).
+pub fn set_external_scanner(s: ExternalScanner) {
+    let _ = EXTERNAL.set(s);
+}
+
 /// Runs a scan on the real adapter. Blocking; call from `spawn_blocking`.
 #[allow(unreachable_code, unused_variables)]
 fn native_scan(trigger: bool) -> ApiResult<ScanResult> {
+    if let Some(s) = EXTERNAL.get() {
+        return s(trigger);
+    }
     #[cfg(windows)]
     return windows::scan(trigger);
     #[cfg(target_os = "linux")]

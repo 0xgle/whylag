@@ -255,6 +255,7 @@ export function PerformanceModule() {
   const settings = useApp((s) => s.settings);
   const updateSettings = useApp((s) => s.updateSettings);
   const { run, start, stop, error } = useJob<PerfRun>("perf");
+  const mobile = useApp((s) => s.appInfo?.os === "android" || s.appInfo?.os === "ios");
   const [withSpeed, setWithSpeed] = useState(true);
   const [askConsent, setAskConsent] = useState(false);
 
@@ -295,10 +296,12 @@ export function PerformanceModule() {
       </label>
       {running && run && <Progress value={run.progress} label={translateMaybe(lang, `perf.phase.${run.phase}`, t("perf.running"))} />}
       <span style={{ flex: 1 }} />
-      <button className="btn btn-ghost" onClick={() => openOverlay()} title={t("overlay.openHelp")}>
-        <Gamepad2 size={15} />
-        {t("overlay.open")}
-      </button>
+      {!mobile && (
+        <button className="btn btn-ghost" onClick={() => openOverlay()} title={t("overlay.openHelp")}>
+          <Gamepad2 size={15} />
+          {t("overlay.open")}
+        </button>
+      )}
     </div>
   );
 

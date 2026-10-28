@@ -52,7 +52,17 @@ async fn save_file(
     Ok(Some(path.to_string_lossy().into_owned()))
 }
 
+#[cfg(mobile)]
+#[tauri::command]
+async fn open_overlay() -> Result<(), ApiError> {
+    Err(ApiError::new(
+        "unsupportedPlatform",
+        "the overlay is a desktop feature",
+    ))
+}
+
 /// Opens (or focuses) the small always-on-top gamer overlay window.
+#[cfg(desktop)]
 #[tauri::command]
 async fn open_overlay(app: tauri::AppHandle) -> Result<(), ApiError> {
     if let Some(w) = app.get_webview_window("overlay") {
@@ -77,19 +87,45 @@ async fn open_overlay(app: tauri::AppHandle) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// On Android the engine reads Wi-Fi through the Kotlin plugin.
+#[cfg(target_os = "android")]
+fn install_android_scanner(app: tauri::AppHandle) {
+    whylag_core::wifi::set_external_scanner(Box::new(move |trigger| {
+        let raw = app
+            .state::<tauri_plugin_wifiscan::WifiScan<tauri::Wry>>()
+            .scan(trigger)
+            .map_err(|e| {
+                if e.contains("locationPermission") {
+                    ApiError::new("locationPermission", e)
+                } else {
+                    ApiError::new("wlanApi", e)
+                }
+            })?;
+        let mut result = whylag_core::wifi::android::parse(&raw);
+        whylag_core::wifi::enrich(&mut result);
+        Ok(result)
+    }));
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_wifiscan::init());
+    #[cfg(desktop)]
+    let builder = builder
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build());
+    builder
         .setup(|app| {
             let data_dir = app
                 .path()
                 .app_data_dir()
                 .unwrap_or_else(|_| std::env::temp_dir().join("whylag"));
             app.manage(AppState::new(data_dir));
+            #[cfg(target_os = "android")]
+            install_android_scanner(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![api, save_file, open_overlay])
