@@ -1,7 +1,7 @@
 name: Release
 
 # Publishing a GitHub release with a tag like v0.2.0 builds installers for
-# Windows (NSIS + MSI), macOS (DMG, Apple Silicon and Intel) and Linux
+# Windows (NSIS installer), macOS (DMG, Apple Silicon and Intel) and Linux
 # (AppImage + deb) and attaches them to that release.
 on:
   release:
@@ -71,7 +71,6 @@ jobs:
           name: whylag-${{ runner.os }}-${{ strategy.job-index }}
           path: |
             target/**/release/bundle/nsis/*.exe
-            target/**/release/bundle/msi/*.msi
             target/**/release/bundle/dmg/*.dmg
             target/**/release/bundle/appimage/*.AppImage
             target/**/release/bundle/deb/*.deb

@@ -28,7 +28,6 @@
     "active": true,
     "targets": [
       "nsis",
-      "msi",
       "dmg",
       "app",
       "appimage",

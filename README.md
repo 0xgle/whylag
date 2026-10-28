@@ -40,7 +40,7 @@ npm ci --prefix web && npm --prefix web run dev   # http://localhost:5174
 
 ## Install
 
-Download the installer for your system from [Releases](https://github.com/0xgle/whylag/releases): `.exe`/`.msi` for Windows, `.dmg` for macOS, `.AppImage`/`.deb` for Linux.
+Download the installer for your system from [Releases](https://github.com/0xgle/whylag/releases): `.exe` for Windows, `.dmg` for macOS, `.AppImage`/`.deb` for Linux.
 
 ## Build from source
 
