@@ -3,17 +3,42 @@ name: Release
 # Publishing a GitHub release with a tag like v0.2.0 builds installers for
 # Windows (NSIS installer), macOS (DMG, Apple Silicon and Intel) and Linux
 # (AppImage + deb) and attaches them to that release.
+#
+# Pushing a tag like v0.2.0 creates that release (notes from
+# .github/release-notes.md) and attaches the installers as well.
 on:
   release:
     types: [published]
+  push:
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
+  # For tag pushes: create the release once, before the parallel builds.
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.make.outputs.id }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: make
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "id=${{ github.event.release.id }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            tag="${GITHUB_REF_NAME}"
+            gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "WhyLag ${tag#v}" --notes-file .github/release-notes.md --verify-tag
+            echo "id=$(gh api repos/${{ github.repository }}/releases/tags/$tag -q .id)" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'v')
+    needs: release
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || startsWith(github.event.release.tag_name, 'v')
     strategy:
       fail-fast: false
       matrix:
@@ -59,8 +84,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.event.release.tag_name }}
-          releaseId: ${{ github.event.release.id }}
+          releaseId: ${{ needs.release.outputs.id }}
           args: ${{ matrix.args }}
 
       # Manual runs (Actions → Release → Run workflow) attach the installers to
