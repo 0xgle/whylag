@@ -62,3 +62,17 @@ jobs:
           tagName: ${{ github.event.release.tag_name }}
           releaseId: ${{ github.event.release.id }}
           args: ${{ matrix.args }}
+
+      # Manual runs (Actions → Release → Run workflow) attach the installers to
+      # the run instead of a release, for testing before going public.
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          name: whylag-${{ runner.os }}-${{ strategy.job-index }}
+          path: |
+            target/**/release/bundle/nsis/*.exe
+            target/**/release/bundle/msi/*.msi
+            target/**/release/bundle/dmg/*.dmg
+            target/**/release/bundle/appimage/*.AppImage
+            target/**/release/bundle/deb/*.deb
+          if-no-files-found: ignore
