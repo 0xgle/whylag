@@ -33,6 +33,20 @@ struct WaitMs {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Interval {
+    interval_s: Option<u64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Range {
+    from_ms: u64,
+    to_ms: u64,
+    points: Option<usize>,
+}
+
+#[derive(Deserialize)]
 struct Enable {
     enable: bool,
 }
@@ -167,6 +181,59 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
         "path.stop" => {
             crate::path::stop(state);
             Ok(Value::Null)
+        }
+
+        "security.scan" => {
+            let scan = crate::wifi::scan(state).await.ok();
+            let discovery = state.discovery.lock().clone();
+            let perf = state.perf.lock().clone();
+            let report = crate::security::report(scan.as_ref(), Some(&discovery), Some(&perf));
+            *state.security.lock() = Some(report.clone());
+            to_value(report)
+        }
+        "security.last" => to_value(state.security.lock().clone()),
+
+        "monitor.start" => {
+            let r: Interval = params(p)?;
+            to_value(crate::monitor::start(state.clone(), r.interval_s.unwrap_or(5)).map_err(|e| ApiError::new("monitor", e))?)
+        }
+        "monitor.stop" => {
+            crate::monitor::stop(state);
+            to_value(crate::monitor::status(state))
+        }
+        "monitor.status" => {
+            let st = state.clone();
+            to_value(blocking(move || crate::monitor::status(&st)).await?)
+        }
+        "monitor.series" => {
+            let r: Range = params(p)?;
+            let st = state.clone();
+            to_value(blocking(move || crate::monitor::series(&st, r.from_ms, r.to_ms, r.points.unwrap_or(600))).await?)
+        }
+        "monitor.clear" => {
+            crate::monitor::clear(state);
+            Ok(Value::Null)
+        }
+
+        "advisor.diagnose" => {
+            let scan = crate::wifi::scan(state).await.ok();
+            let st = state.clone();
+            let monitor = blocking(move || crate::monitor::status(&st)).await?;
+            let perf = state.perf.lock().clone();
+            let path = state.path.lock().clone();
+            let discovery = state.discovery.lock().clone();
+            let security = state.security.lock().clone();
+            let settings = state.settings();
+            let d = crate::advisor::diagnose(&crate::advisor::Inputs {
+                scan: scan.as_ref(),
+                perf: Some(&perf),
+                path: Some(&path),
+                discovery: Some(&discovery),
+                security: security.as_ref(),
+                monitor: Some(&monitor),
+                settings: &settings,
+            });
+            to_value(d)
         }
 
         "fs.writeText" => {

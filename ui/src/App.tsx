@@ -24,6 +24,10 @@ import { SurveyModule } from "./modules/survey/SurveyModule";
 import { DiscoveryModule } from "./modules/discovery/DiscoveryModule";
 import { PerformanceModule } from "./modules/performance/PerformanceModule";
 import { PathModule } from "./modules/path/PathModule";
+import { SecurityModule } from "./modules/security/SecurityModule";
+import { MonitorModule } from "./modules/monitor/MonitorModule";
+import { OverviewModule } from "./modules/overview/OverviewModule";
+import { ReportsModule } from "./modules/reports/ReportsModule";
 import { SettingsModule } from "./modules/settings/SettingsModule";
 import { Placeholder } from "./modules/Placeholder";
 
@@ -50,6 +54,10 @@ const MODULES: Partial<Record<ModuleId, ComponentType>> = {
   discovery: DiscoveryModule,
   performance: PerformanceModule,
   path: PathModule,
+  security: SecurityModule,
+  monitor: MonitorModule,
+  overview: OverviewModule,
+  reports: ReportsModule,
   settings: SettingsModule,
 };
 

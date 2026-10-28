@@ -6,6 +6,7 @@
 //! and lets the whole UI be tested in CI.
 
 pub mod lan;
+pub mod monitor;
 pub mod net;
 mod plan;
 mod radios;

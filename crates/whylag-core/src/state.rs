@@ -16,6 +16,8 @@ pub struct AppState {
     pub path: Mutex<crate::path::PathRun>,
     pub path_handle: crate::path::PathHandle,
     pub peer_server: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    pub monitor: crate::monitor::MonitorHandle,
+    pub security: Mutex<Option<crate::security::SecurityReport>>,
 }
 
 impl AppState {
@@ -32,6 +34,8 @@ impl AppState {
             path: Mutex::new(Default::default()),
             path_handle: Default::default(),
             peer_server: Mutex::new(None),
+            monitor: Default::default(),
+            security: Mutex::new(None),
         })
     }
 

@@ -378,3 +378,112 @@ export interface PathRun extends JobBase {
   findings: PathFinding[];
   rounds: number;
 }
+
+// ---------- Security, monitor, advisor ----------
+
+export type Severity = "critical" | "high" | "medium" | "low" | "info";
+
+export interface SecurityFinding {
+  code: string;
+  severity: Severity;
+  area: "wifi" | "lan" | "internet";
+  subject: string | null;
+  params: Record<string, unknown>;
+}
+
+export interface SecurityReport {
+  score: number;
+  findings: SecurityFinding[];
+  checkedWifi: boolean;
+  checkedLan: boolean;
+  checkedDns: boolean;
+  generatedMs: number;
+}
+
+export interface MonitorSample {
+  ts: number;
+  gatewayMs: number | null;
+  internetMs: number | null;
+  dnsMs: number | null;
+  rssi: number | null;
+  bssid: string | null;
+  channel: number | null;
+  connected: boolean;
+}
+
+export type IncidentKind =
+  | "localOutage"
+  | "ispOutage"
+  | "localLoss"
+  | "ispLoss"
+  | "latencySpike"
+  | "localLatency"
+  | "dnsFailure"
+  | "dnsSlow"
+  | "weakSignal"
+  | "roam";
+
+export interface Incident {
+  id: number;
+  kind: IncidentKind;
+  startMs: number;
+  endMs: number | null;
+  peak: number | null;
+  detail: string | null;
+}
+
+export interface MonitorStatus {
+  running: boolean;
+  simulated: boolean;
+  intervalS: number;
+  startedMs: number | null;
+  sampleCount: number;
+  firstMs: number | null;
+  last: MonitorSample | null;
+  incidents: Incident[];
+  gateway: string | null;
+  dnsServer: string | null;
+}
+
+export interface SampleSeries {
+  ts: number[];
+  gatewayMs: (number | null)[];
+  internetMs: (number | null)[];
+  dnsMs: (number | null)[];
+  rssi: (number | null)[];
+  internetLoss: number[];
+  gatewayLoss: number[];
+}
+
+export type AdviceLevel = "critical" | "warning" | "info" | "good";
+
+export interface Advice {
+  code: string;
+  level: AdviceLevel;
+  area: string;
+  module: string;
+  params: Record<string, unknown>;
+}
+
+export interface Diagnosis {
+  grade: string;
+  verdict: string;
+  advice: Advice[];
+  summary: {
+    ssid: string | null;
+    rssi: number | null;
+    band: Band | null;
+    channel: number | null;
+    linkRateMbps: number | null;
+    downloadMbps: number | null;
+    uploadMbps: number | null;
+    bufferbloat: string | null;
+    internetLatencyMs: number | null;
+    gatewayLatencyMs: number | null;
+    devices: number | null;
+    securityScore: number | null;
+    incidents24h: number | null;
+  };
+  checked: string[];
+  generatedMs: number;
+}

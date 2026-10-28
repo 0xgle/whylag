@@ -26,7 +26,7 @@ function latencyColor(ms: number | null) {
   return "var(--sig-bad)";
 }
 
-function ConsentDialog({ onAccept, onCancel }: { onAccept: () => void; onCancel: () => void }) {
+export function ConsentDialog({ onAccept, onCancel }: { onAccept: () => void; onCancel: () => void }) {
   const t = useT();
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="consent-title">

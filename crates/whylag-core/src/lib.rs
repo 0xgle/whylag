@@ -10,7 +10,10 @@ pub mod settings;
 pub mod state;
 pub mod util;
 
+pub mod advisor;
+pub mod monitor;
 pub mod rf;
+pub mod security;
 pub mod sim;
 pub mod survey;
 pub mod discovery;
