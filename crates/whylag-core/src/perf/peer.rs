@@ -14,6 +14,8 @@ use tokio::net::{TcpListener, TcpStream};
 pub const PORT: u16 = 47321;
 const MAGIC: &[u8; 6] = b"WHYLAG";
 const PHASE: Duration = Duration::from_secs(5);
+/// Longest phase a client may ask for.
+const MAX_PHASE: Duration = Duration::from_secs(10);
 const CHUNK: usize = 128 * 1024;
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -35,16 +37,17 @@ pub struct PeerResult {
 }
 
 async fn serve_one(mut sock: TcpStream) -> std::io::Result<()> {
-    let mut hello = [0u8; 7];
+    let mut hello = [0u8; 8];
     tokio::time::timeout(Duration::from_secs(5), sock.read_exact(&mut hello)).await??;
     if &hello[..6] != MAGIC {
         return Ok(());
     }
+    let phase = Duration::from_secs(hello[7].clamp(1, MAX_PHASE.as_secs() as u8) as u64);
     let buf = vec![0x5au8; CHUNK];
     match hello[6] {
         b'D' => {
             let start = Instant::now();
-            while start.elapsed() < PHASE {
+            while start.elapsed() < phase {
                 if sock.write_all(&buf).await.is_err() {
                     break;
                 }
@@ -56,7 +59,7 @@ async fn serve_one(mut sock: TcpStream) -> std::io::Result<()> {
             let mut rbuf = vec![0u8; CHUNK];
             let start = Instant::now();
             loop {
-                match tokio::time::timeout(PHASE + Duration::from_secs(2), sock.read(&mut rbuf)).await {
+                match tokio::time::timeout(phase + Duration::from_secs(2), sock.read(&mut rbuf)).await {
                     Ok(Ok(0)) | Err(_) | Ok(Err(_)) => break,
                     Ok(Ok(n)) => total += n as u64,
                 }
@@ -93,6 +96,12 @@ pub fn local_addresses() -> Vec<String> {
 }
 
 pub async fn run_test(host: &str) -> Result<PeerResult, String> {
+    run_test_for(host, PHASE).await
+}
+
+/// Runs the test with a custom phase length (survey points use short phases).
+pub async fn run_test_for(host: &str, phase: Duration) -> Result<PeerResult, String> {
+    let phase = phase.clamp(Duration::from_secs(1), MAX_PHASE);
     let ip: IpAddr = crate::net::resolve(host).await.ok_or("unresolved")?;
     let addr = SocketAddr::new(ip, PORT);
     let connect = |mode: u8| async move {
@@ -104,6 +113,7 @@ pub async fn run_test(host: &str) -> Result<PeerResult, String> {
         let ms = started.elapsed().as_secs_f64() * 1000.0;
         let mut hello = MAGIC.to_vec();
         hello.push(mode);
+        hello.push(phase.as_secs() as u8);
         s.write_all(&hello).await.map_err(|e| e.to_string())?;
         Ok::<_, String>((s, ms))
     };
@@ -114,7 +124,7 @@ pub async fn run_test(host: &str) -> Result<PeerResult, String> {
     let mut down = 0u64;
     let start = Instant::now();
     loop {
-        match tokio::time::timeout(PHASE + Duration::from_secs(2), s.read(&mut buf)).await {
+        match tokio::time::timeout(phase + Duration::from_secs(2), s.read(&mut buf)).await {
             Ok(Ok(0)) | Err(_) | Ok(Err(_)) => break,
             Ok(Ok(n)) => down += n as u64,
         }
@@ -125,7 +135,7 @@ pub async fn run_test(host: &str) -> Result<PeerResult, String> {
     let (mut s, _) = connect(b'U').await?;
     let data = Arc::new(vec![0xa5u8; CHUNK]);
     let start = Instant::now();
-    while start.elapsed() < PHASE {
+    while start.elapsed() < phase {
         if s.write_all(&data).await.is_err() {
             break;
         }

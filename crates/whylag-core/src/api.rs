@@ -172,6 +172,17 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
             let r: Host = params(p)?;
             to_value(crate::perf::peer::run_test(&r.host).await.map_err(|e| ApiError::new(e, "peer test failed"))?)
         }
+        // Short throughput probe for survey points: peer test or simulated.
+        "survey.throughput" => {
+            let r: Host = params(p)?;
+            if state.use_simulator() || r.host.is_empty() && state.sim_active() {
+                let mbps = state.sim.lock().throughput_here();
+                tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+                return to_value(crate::perf::peer::PeerResult { host: "simulator".into(), download_mbps: mbps, upload_mbps: mbps * 0.8, connect_ms: 2.0 });
+            }
+            let res = crate::perf::peer::run_test_for(&r.host, std::time::Duration::from_secs(2)).await.map_err(|e| ApiError::new(e, "peer test failed"))?;
+            to_value(res)
+        }
 
         "path.start" => {
             let req: crate::path::PathRequest = params(p)?;

@@ -275,7 +275,17 @@ export function SurveyModule() {
       try {
         await call("sim.setPosition", { xPx: x, yPx: y });
         const scan = await call<ScanResult>("wifi.scanFresh", { waitMs: 3500 });
-        addSamples([{ x, y, tMs: scan.timestampMs, readings: toReadings(scan) }]);
+        const { measureThroughput, throughputHost } = useSurvey.getState();
+        let throughputMbps: number | null = null;
+        if (measureThroughput && (isSim || throughputHost.trim())) {
+          try {
+            const r = await call<{ downloadMbps: number }>("survey.throughput", { host: throughputHost.trim() });
+            throughputMbps = r.downloadMbps;
+          } catch (e) {
+            setError(t("perf.peer.unreachable"));
+          }
+        }
+        addSamples([{ x, y, tMs: scan.timestampMs, readings: toReadings(scan), throughputMbps }]);
       } catch (e) {
         setError(String((e as Error).message ?? e));
       } finally {

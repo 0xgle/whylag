@@ -99,6 +99,20 @@ impl SimWorld {
         self.position = (x, y);
     }
 
+    /// Throughput a client would get at the current position (Mb/s), from the
+    /// best signal of the office network. Used for throughput survey layers.
+    pub fn throughput_here(&mut self) -> f64 {
+        let (x, y) = self.position;
+        let best = (0..self.radios.len())
+            .filter(|i| self.radios[*i].ssid == "Acme-Office" && self.radios[*i].band != Band::B24)
+            .map(|i| self.expected_rssi(i, x, y))
+            .fold(f64::MIN, f64::max);
+        // Roughly: 600 Mb/s at -45 dBm falling to ~10 Mb/s at -82 dBm.
+        let snr = (best + 95.0).max(0.0);
+        let rate = (snr * snr * 0.28).min(620.0);
+        (rate * (0.85 + self.rng.gen::<f64>() * 0.15)).max(2.0)
+    }
+
     /// Smooth, position-dependent shadow fading (±3 dB) so heatmaps look like real
     /// measurements instead of perfect circles. Deterministic per radio and place.
     fn shadow_fading(index: usize, x: f64, y: f64) -> f64 {

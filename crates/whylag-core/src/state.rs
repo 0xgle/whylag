@@ -18,6 +18,8 @@ pub struct AppState {
     pub peer_server: Mutex<Option<tokio::task::JoinHandle<()>>>,
     pub monitor: crate::monitor::MonitorHandle,
     pub security: Mutex<Option<crate::security::SecurityReport>>,
+    /// Set when the last Wi-Fi scan fell back to the simulator.
+    pub sim_fallback: RwLock<bool>,
 }
 
 impl AppState {
@@ -36,6 +38,7 @@ impl AppState {
             peer_server: Mutex::new(None),
             monitor: Default::default(),
             security: Mutex::new(None),
+            sim_fallback: RwLock::new(false),
         })
     }
 
@@ -44,6 +47,12 @@ impl AppState {
     /// falls back to it when no adapter data is available.
     pub fn use_simulator(&self) -> bool {
         self.settings.read().data_source == crate::settings::DataSource::Simulator
+    }
+
+    /// True when Wi-Fi data currently comes from the simulator (explicitly or
+    /// as the Auto fallback), so survey helpers should simulate as well.
+    pub fn sim_active(&self) -> bool {
+        self.use_simulator() || *self.sim_fallback.read()
     }
 
     pub fn settings(&self) -> Settings {

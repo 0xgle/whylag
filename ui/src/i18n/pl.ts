@@ -668,5 +668,9 @@ export const pl: Dict = {
   "report.monitor.window": "Monitoring od {from} do {to}, pomiary: {n}.",
   "report.footer": "Wygenerowano w WhyLag",
 
+  "survey.tput.enable": "Mierz prędkość w każdym punkcie",
+  "survey.tput.host": "Adres drugiego komputera z WhyLag",
+  "survey.tput.help": "Dla pomiarów w punkcie. Na drugim komputerze włącz „Przyjmuj testy na tym komputerze” w module Wydajność. W biurze demo jest to symulowane.",
+
   "placeholder.soon": "Ten moduł jest w budowie.",
 };

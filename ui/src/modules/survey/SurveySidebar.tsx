@@ -388,6 +388,22 @@ export function SurveySidebar({
           </div>
           {toolHelp[s.tool] && <p className="side-help">{t(toolHelp[s.tool]!)}</p>}
 
+          {s.mode === "measured" && s.tool === "measure" && (
+            <div className="stack" style={{ gap: 6 }}>
+              <label className="check small">
+                <input type="checkbox" checked={s.measureThroughput} onChange={(e) => s.set({ measureThroughput: e.target.checked })} />
+                {t("survey.tput.enable")}
+              </label>
+              {s.measureThroughput && !isSim && (
+                <label className="side-field">
+                  <span>{t("survey.tput.host")}</span>
+                  <input className="input" value={s.throughputHost} onChange={(e) => s.set({ throughputHost: e.target.value })} placeholder="192.168.1.20" />
+                </label>
+              )}
+              {s.measureThroughput && <p className="side-help">{t("survey.tput.help")}</p>}
+            </div>
+          )}
+
           {s.tool === "wall" && (
             <label className="side-field">
               <span>{t("survey.material")}</span>

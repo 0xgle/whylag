@@ -209,6 +209,7 @@ pub async fn scan(state: &AppState) -> ApiResult<ScanResult> {
         }
     };
     enrich(&mut result);
+    *state.sim_fallback.write() = result.source == ScanSource::Simulator;
     Ok(result)
 }
 
