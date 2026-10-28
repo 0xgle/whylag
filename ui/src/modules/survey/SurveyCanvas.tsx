@@ -31,6 +31,18 @@ interface View {
   ty: number;
 }
 
+/** Points along the walk where the computer switched access points. */
+function roamMarks(samples: SurveyProject["samples"]) {
+  const out: { x: number; y: number; from: string; to: string }[] = [];
+  let prev: string | null = null;
+  for (const s of samples) {
+    const cur = s.readings.find((x) => x.connected)?.bssid ?? null;
+    if (cur && prev && cur !== prev) out.push({ x: s.x, y: s.y, from: prev, to: cur });
+    if (cur) prev = cur;
+  }
+  return out;
+}
+
 /** Best "your network" signal of a sample, used to colour sample dots. */
 function sampleSignal(s: SurveyProject["samples"][number], ssids: string[]) {
   const vals = s.readings.filter((r) => !ssids.length || ssids.includes(r.ssid)).map((r) => r.rssi);
@@ -63,7 +75,7 @@ export function SurveyCanvas({
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const pinch = useRef<{ dist: number; view: View; cx: number; cy: number } | null>(null);
 
-  const { tool, opacity, ssids, walk, calibration, selectedAp, mode } = useSurvey();
+  const { tool, opacity, ssids, walk, calibration, selectedAp, mode, foundAps, showRoams } = useSurvey();
   const fp = project.floorPlan;
 
   // Fit the plan into the view when a project loads or the host resizes first time.
@@ -311,6 +323,25 @@ export function SurveyCanvas({
                 />
               );
             })}
+
+          {mode === "measured" && showRoams && roamMarks(project.samples).map((m, i) => (
+            <g key={`roam-${i}`} transform={`translate(${m.x} ${m.y})`} style={{ pointerEvents: "none" }}>
+              <title>{`${m.from} → ${m.to}`}</title>
+              <rect x={-r(7)} y={-r(7)} width={r(14)} height={r(14)} rx={r(3)} transform="rotate(45)" fill="#d9632b" stroke="#fff" strokeWidth={r(1.5)} />
+              <path d={`M${-r(3.5)},${-r(1.2)} H${r(3.5)} l${-r(1.6)},${-r(1.6)} M${r(3.5)},${r(1.2)} H${-r(3.5)} l${r(1.6)},${r(1.6)}`} fill="none" stroke="#fff" strokeWidth={r(1.2)} strokeLinecap="round" />
+            </g>
+          ))}
+
+          {mode === "measured" && foundAps.filter((ap) => !ssids.length || ap.ssids.some((x) => ssids.includes(x))).map((ap) => (
+            <g key={ap.key} transform={`translate(${ap.x} ${ap.y})`} style={{ pointerEvents: "none" }} opacity={ap.confidence === "high" ? 1 : 0.6}>
+              <title>{`${ap.ssids.join(", ") || ap.key}\n${ap.bssids.join("\n")}`}</title>
+              <circle r={r(13)} fill="rgba(23,32,43,0.08)" stroke="#17202b" strokeWidth={r(1.6)} strokeDasharray={`${r(4)} ${r(3)}`} />
+              <circle r={r(4)} fill="#17202b" />
+              <text y={r(26)} textAnchor="middle" fontSize={r(11)} fontWeight={600} fill="#17202b" stroke="#fff" strokeWidth={r(3)} paintOrder="stroke">
+                {(ap.ssids[0] ?? ap.key).slice(0, 18)} · {ap.channels.join("/")}
+              </text>
+            </g>
+          ))}
 
           {pathPts.length > 0 && (
             <polyline

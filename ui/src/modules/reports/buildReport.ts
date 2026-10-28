@@ -1,5 +1,5 @@
 import { fmtNumber, translate, translateMaybe, type Key, type Lang } from "../../i18n";
-import type { Diagnosis, DiscoveryRun, MonitorStatus, PathRun, PerfRun, SampleSeries, ScanResult, SecurityReport, Settings } from "../../types";
+import type { LocatedAp, Diagnosis, DiscoveryRun, MonitorStatus, PathRun, PerfRun, SampleSeries, ScanResult, SecurityReport, Settings } from "../../types";
 import { fmtDateTime, fmtDuration, fmtParams } from "../../lib/format";
 import { INCIDENT_WHERE } from "../monitor/MonitorModule";
 
@@ -12,7 +12,17 @@ export interface ReportData {
   settings: Settings | null;
   diag: Diagnosis | null;
   scan: ScanResult | null;
-  survey: { name: string; images: { layer: string; png: string; coverage: number | null }[] } | null;
+  survey: {
+    name: string;
+    floors: {
+      name: string;
+      mode: "measured" | "predicted";
+      images: { layer: string; png: string; coverage: number | null }[];
+      aps: LocatedAp[];
+      samples: number;
+      areaM2: number | null;
+    }[];
+  } | null;
   discovery: DiscoveryRun | null;
   perf: PerfRun | null;
   path: PathRun | null;
@@ -114,16 +124,34 @@ export function buildReport(d: ReportData): string {
 
   if (has("survey")) {
     let body = `<p class="muted">${esc(t("reports.noData"))}</p>`;
-    if (d.survey && d.survey.images.length) {
-      body = d.survey.images
-        .map(
-          (img) =>
-            `<figure><img src="${img.png}" alt=""><figcaption>${esc(t("report.survey.layer", { layer: t(`survey.layer.${img.layer}` as Key) }))}${
-              img.coverage != null && (img.layer === "signal" || img.layer === "secondSignal")
-                ? ` — ${esc(t("report.survey.coverage", { pct: n(img.coverage * 100), threshold: d.settings?.coverageThresholdDbm ?? -67 }))}`
-                : ""
-            }</figcaption></figure>`,
-        )
+    if (d.survey && d.survey.floors.length) {
+      const many = d.survey.floors.length > 1;
+      body = d.survey.floors
+        .map((f) => {
+          const facts = [
+            f.mode === "measured" ? t("report.survey.samples", { n: f.samples }) : t("report.survey.predicted"),
+            f.areaM2 != null ? t("report.survey.area", { area: n(f.areaM2) }) : null,
+          ].filter(Boolean);
+          const figures = f.images
+            .map(
+              (img) =>
+                `<figure><img src="${img.png}" alt=""><figcaption>${esc(t("report.survey.layer", { layer: t(`survey.layer.${img.layer}` as Key) }))}${
+                  img.coverage != null && (img.layer === "signal" || img.layer === "secondSignal")
+                    ? ` — ${esc(t("report.survey.coverage", { pct: n(img.coverage * 100), threshold: d.settings?.coverageThresholdDbm ?? -67 }))}`
+                    : ""
+                }</figcaption></figure>`,
+            )
+            .join("");
+          const aps = f.aps.length
+            ? `<h4>${esc(t("report.survey.aps"))}</h4><table><thead><tr><th>${esc(t("wifi.col.ssid"))}</th><th>BSSID</th><th class="num">${esc(t("wifi.col.channel"))}</th><th class="num">${esc(t("report.survey.strongest"))}</th><th>${esc(t("report.survey.position"))}</th></tr></thead><tbody>${f.aps
+                .map(
+                  (a) =>
+                    `<tr><td>${esc(a.ssids.join(", ") || t("common.hidden"))}</td><td class="mono">${esc(a.bssids.slice(0, 3).join(" "))}${a.bssids.length > 3 ? " …" : ""}</td><td class="num">${esc(a.channels.join(", "))}</td><td class="num">${a.maxRssi} dBm</td><td>${esc(t(a.confidence === "high" ? "report.survey.posHigh" : "report.survey.posLow"))}</td></tr>`,
+                )
+                .join("")}</tbody></table>`
+            : "";
+          return `${many ? `<h3>${esc(f.name)}</h3>` : ""}<p>${esc(facts.join(" · "))}</p>${figures}${aps}`;
+        })
         .join("");
     }
     out.push(`<section><h2>${esc(sectionTitle("survey"))}${d.survey ? `: ${esc(d.survey.name)}` : ""}</h2>${body}</section>`);

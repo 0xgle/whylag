@@ -169,6 +169,10 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
             to_value(blocking(move || crate::survey::suggest_placement(&req)).await?)
         }
         "survey.materials" => to_value(crate::survey::materials()),
+        "survey.locateAps" => {
+            let req: crate::survey::LocateRequest = params(p)?;
+            to_value(blocking(move || crate::survey::locate_aps(&req)).await?)
+        }
 
         "net.info" => {
             if state.use_simulator() {

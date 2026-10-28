@@ -4,10 +4,11 @@ import { call, openFile, type CallError } from "../../api";
 import { peerErrorKey } from "../../lib/peer";
 import { useApp } from "../../store";
 import { useT } from "../../i18n";
-import type { Heatmap, PlacementSuggestion, Reading, Sample, ScanResult, SimInfo, SurveyProject, VirtualAp, Wall } from "../../types";
+import type { Heatmap, LocatedAp, PlacementSuggestion, Reading, Sample, ScanResult, SimInfo, SurveyProject, VirtualAp, Wall } from "../../types";
 import { Notice } from "../../components/ui";
 import { SurveyCanvas, type CanvasHandlers } from "./SurveyCanvas";
 import { SurveySidebar } from "./SurveySidebar";
+import { FloorBar } from "./FloorBar";
 import { isProject, newProject, useSurvey } from "./surveyStore";
 
 function toReadings(scan: ScanResult): Reading[] {
@@ -20,6 +21,7 @@ function toReadings(scan: ScanResult): Reading[] {
     widthMhz: n.widthMhz,
     noise: n.noise,
     security: n.security,
+    connected: n.connected,
   }));
 }
 
@@ -197,6 +199,21 @@ export function SurveyModule() {
     return () => clearTimeout(id);
   }, [request, compute]);
 
+  // Locate the real access points from the measurements when asked to.
+  const showFoundAps = useSurvey((s) => s.showFoundAps);
+  useEffect(() => {
+    if (!project || !showFoundAps || project.samples.length < 4) {
+      set({ foundAps: [] });
+      return;
+    }
+    const id = setTimeout(() => {
+      call<LocatedAp[]>("survey.locateAps", { samples: project.samples, metersPerPx: project.floorPlan.metersPerPx })
+        .then((aps) => set({ foundAps: aps }))
+        .catch(() => {});
+    }, 400);
+    return () => clearTimeout(id);
+  }, [project?.samples, project?.floorPlan.metersPerPx, showFoundAps, set]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Suggestions are stale once the data changes.
   useEffect(() => setSuggestions([]), [project?.samples.length, project?.aps.length, mode]);
 
@@ -367,6 +384,7 @@ export function SurveyModule() {
             </Notice>
           </div>
         )}
+        <FloorBar prepare={prepareImage} onError={setError} />
         <SurveyCanvas project={project} heatmap={heatmap} suggestions={suggestions} handlers={handlers} walkCursor={walkCursor} pending={pending} />
       </div>
       <SurveySidebar

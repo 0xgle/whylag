@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import {
+  FileText,
   BrickWall,
   Crosshair,
   Download,
@@ -15,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { call, saveDataUrl, saveTextFile } from "../../api";
+import { useApp } from "../../store";
 import { fmtNumber, useLang, useT, type Key } from "../../i18n";
 import type { Band, ChannelPlan, Heatmap, Layer, Material, PlacementSuggestion, VirtualAp } from "../../types";
 import { Segmented } from "../../components/ui";
@@ -546,6 +548,22 @@ export function SurveySidebar({
             <input type="range" min={0.15} max={1} step={0.05} value={s.opacity} onChange={(e) => s.set({ opacity: Number(e.target.value) })} />
           </label>
 
+          {s.mode === "measured" && (
+            <>
+              <label className="check small">
+                <input type="checkbox" checked={s.showFoundAps} onChange={(e) => s.set({ showFoundAps: e.target.checked })} />
+                {t("survey.found.show")}
+              </label>
+              <label className="check small">
+                <input type="checkbox" checked={s.showRoams} onChange={(e) => s.set({ showRoams: e.target.checked })} />
+                {t("survey.roams.show")}
+              </label>
+              {s.showFoundAps && (
+                <p className="side-help">{s.foundAps.length ? t("survey.found.help", { n: s.foundAps.filter((ap) => !s.ssids.length || ap.ssids.some((x) => s.ssids.includes(x))).length }) : t("survey.found.none")}</p>
+              )}
+            </>
+          )}
+
           {heatmap ? (
             <Legend heatmap={heatmap} layer={s.layer} />
           ) : (
@@ -612,6 +630,20 @@ export function SurveySidebar({
             )}
           </Section>
         )}
+
+        <Section title={t("survey.report.title")}>
+          <p className="side-help">{t("survey.report.help")}</p>
+          <button
+            className="btn"
+            onClick={() => {
+              useApp.getState().setReportPreset(["survey"]);
+              useApp.getState().setModule("reports");
+            }}
+          >
+            <FileText size={15} />
+            {t("survey.report.open")}
+          </button>
+        </Section>
 
         <Section title={t("survey.suggest.title")}>
           <div className="row" style={{ gap: 8 }}>

@@ -3,9 +3,9 @@ import { Copy, FileText, Printer, Save, X } from "lucide-react";
 import { call, saveTextFile } from "../../api";
 import { useApp } from "../../store";
 import { useLang, useT, type Key, type Lang } from "../../i18n";
-import type { Diagnosis, DiscoveryRun, Heatmap, MonitorStatus, PathRun, PerfRun, SampleSeries, ScanResult, SecurityReport } from "../../types";
+import type { Diagnosis, DiscoveryRun, Heatmap, LocatedAp, MonitorStatus, PathRun, PerfRun, SampleSeries, ScanResult, SecurityReport } from "../../types";
 import { Notice, Panel, Segmented, Toast, useToast } from "../../components/ui";
-import { useSurvey } from "../survey/surveyStore";
+import { allFloors, useSurvey } from "../survey/surveyStore";
 import { renderSurveyPng } from "../survey/render";
 import { buildReport, type SectionId } from "./buildReport";
 import { buildComplaint, hasEvidence } from "./complaint";
@@ -44,7 +44,14 @@ export function ReportsModule() {
   const project = useSurvey((s) => s.project);
   const threshold = settings?.coverageThresholdDbm ?? -67;
   const [client, setClient] = useState("");
-  const [sections, setSections] = useState<SectionId[]>(SECTIONS);
+  const [sections, setSections] = useState<SectionId[]>(() => {
+    const preset = useApp.getState().reportPreset as SectionId[] | null;
+    return preset?.length ? SECTIONS.filter((s) => preset.includes(s)) : SECTIONS;
+  });
+  // The preset applies once, to this visit.
+  useEffect(() => {
+    useApp.getState().setReportPreset(null);
+  }, []);
   const [busy, setBusy] = useState(false);
   const [html, setHtml] = useState<string | null>(null);
   const [toast, showToast] = useToast();
@@ -83,27 +90,37 @@ export function ReportsModule() {
       const series = status && status.sampleCount ? await call<SampleSeries>("monitor.series", { fromMs: to - 24 * 3_600_000, toMs: to, points: 400 }) : null;
       let survey = null;
       if (project && sections.includes("survey")) {
-        const mode = project.samples.length ? "measured" : project.aps.length ? "predicted" : null;
-        if (mode) {
+        const floors = [];
+        // Every floor of the building, each with its own maps and located APs.
+        for (const floor of allFloors(project)) {
+          const mode: "measured" | "predicted" | null = floor.samples.length ? "measured" : floor.aps.length ? "predicted" : null;
+          if (!mode) continue;
           const images = [];
-          for (const layer of ["signal", "secondSignal", "coChannel", "bestAp"] as const) {
+          let areaM2: number | null = null;
+          for (const layer of ["signal", "secondSignal", "snr", "coChannel", "bestAp"] as const) {
             const h = await call<Heatmap>("survey.heatmap", {
               mode,
               layer,
-              widthPx: project.floorPlan.widthPx,
-              heightPx: project.floorPlan.heightPx,
-              metersPerPx: project.floorPlan.metersPerPx,
-              samples: mode === "measured" ? project.samples : [],
-              walls: project.walls,
-              aps: mode === "predicted" ? project.aps : [],
+              widthPx: floor.floorPlan.widthPx,
+              heightPx: floor.floorPlan.heightPx,
+              metersPerPx: floor.floorPlan.metersPerPx,
+              samples: mode === "measured" ? floor.samples : [],
+              walls: floor.walls,
+              aps: mode === "predicted" ? floor.aps : [],
               filter: { ssids: useSurvey.getState().ssids, bands: useSurvey.getState().bands },
               thresholdDbm: threshold,
               reachM: 5,
             });
-            images.push({ layer, png: await renderSurveyPng(project, h, { maxWidth: 1400 }), coverage: h.stats.cells ? h.stats.coverageRatio : null });
+            areaM2 ??= h.stats.areaM2;
+            images.push({ layer, png: await renderSurveyPng(floor, h, { maxWidth: 1400 }), coverage: h.stats.cells ? h.stats.coverageRatio : null });
           }
-          survey = { name: project.name, images };
+          const aps =
+            mode === "measured" && floor.samples.length >= 4
+              ? await call<LocatedAp[]>("survey.locateAps", { samples: floor.samples, metersPerPx: floor.floorPlan.metersPerPx }).catch(() => [])
+              : [];
+          floors.push({ name: floor.floorName ?? floor.floorPlan.name, mode, images, aps, samples: floor.samples.length, areaM2 });
         }
+        if (floors.length) survey = { name: project.name, floors };
       }
       setHtml(
         buildReport({

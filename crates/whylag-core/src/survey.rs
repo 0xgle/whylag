@@ -970,6 +970,159 @@ pub fn suggest_placement(req: &PlacementRequest) -> Vec<PlacementSuggestion> {
     out
 }
 
+// ---------------------------------------------------------------------------
+// Locating access points from survey readings
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocateRequest {
+    pub samples: Vec<Sample>,
+    pub meters_per_px: Option<f64>,
+}
+
+/// An access point placed on the plan from where it was heard loudest.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocatedAp {
+    /// Radios of one physical AP share all but the last nibble of the BSSID.
+    pub key: String,
+    pub bssids: Vec<String>,
+    pub ssids: Vec<String>,
+    pub channels: Vec<u32>,
+    pub x: f64,
+    pub y: f64,
+    pub max_rssi: i32,
+    pub samples: usize,
+    /// "high" when the walk passed near the estimated spot, else "low".
+    pub confidence: String,
+}
+
+/// Groups BSSIDs of one AP: vendors derive extra BSSIDs by changing the last
+/// nibble, and often set the locally administered bit on the first byte.
+pub fn ap_key(bssid: &str) -> String {
+    let parts: Vec<u8> = bssid
+        .split(':')
+        .filter_map(|p| u8::from_str_radix(p, 16).ok())
+        .collect();
+    if parts.len() != 6 {
+        return bssid.to_lowercase();
+    }
+    format!(
+        "{:02x}:{:02x}:{:02x}:{:02x}:{:x}x",
+        parts[1],
+        parts[2],
+        parts[3],
+        parts[4],
+        parts[5] >> 4
+    )
+}
+
+/// Path loss exponent assumed indoors when fitting distances.
+const LOCATE_N: f64 = 3.0;
+
+pub fn locate_aps(req: &LocateRequest) -> Vec<LocatedAp> {
+    let mpp = req.meters_per_px.unwrap_or(0.05);
+    // key -> per-sample strongest reading of that AP
+    let mut groups: HashMap<String, (Vec<(f64, f64, i32)>, Vec<String>, Vec<String>, Vec<u32>)> =
+        HashMap::new();
+    for s in &req.samples {
+        let mut best: HashMap<String, i32> = HashMap::new();
+        for r in &s.readings {
+            let k = ap_key(&r.bssid);
+            let g = groups.entry(k.clone()).or_default();
+            if !g.1.contains(&r.bssid) {
+                g.1.push(r.bssid.clone());
+            }
+            if !r.ssid.is_empty() && !g.2.contains(&r.ssid) {
+                g.2.push(r.ssid.clone());
+            }
+            if !g.3.contains(&r.channel) {
+                g.3.push(r.channel);
+            }
+            let e = best.entry(k).or_insert(i32::MIN);
+            *e = (*e).max(r.rssi);
+        }
+        for (k, rssi) in best {
+            groups
+                .get_mut(&k)
+                .unwrap()
+                .0
+                .push((s.x * mpp, s.y * mpp, rssi));
+        }
+    }
+    let mut out = Vec::new();
+    for (key, (mut pts, bssids, ssids, mut channels)) in groups {
+        if pts.len() < 4 {
+            continue;
+        }
+        pts.sort_by(|a, b| b.2.cmp(&a.2));
+        let max_rssi = pts[0].2;
+        // Far readings are mostly noise and walls: fit on the strongest ones.
+        pts.truncate(40);
+        let (x0, y0, x1, y1) = pts
+            .iter()
+            .fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |b, p| {
+                (b.0.min(p.0), b.1.min(p.1), b.2.max(p.0), b.3.max(p.1))
+            });
+        let pad = ((x1 - x0).max(y1 - y0) * 0.25).max(3.0);
+        // Grid search the spot whose log-distance model best explains the
+        // readings; the transmit level is solved in closed form per spot.
+        let cost = |cx: f64, cy: f64| {
+            let terms: Vec<(f64, f64)> = pts
+                .iter()
+                .map(|p| {
+                    (
+                        p.2 as f64,
+                        10.0 * LOCATE_N * ((p.0 - cx).hypot(p.1 - cy)).max(1.0).log10(),
+                    )
+                })
+                .collect();
+            let p0 = terms.iter().map(|(r, l)| r + l).sum::<f64>() / terms.len() as f64;
+            terms
+                .iter()
+                .map(|(r, l)| (r - (p0 - l)).powi(2))
+                .sum::<f64>()
+        };
+        let mut best = (f64::MAX, 0.0, 0.0);
+        let step = 0.5;
+        let mut y = y0 - pad;
+        while y <= y1 + pad {
+            let mut x = x0 - pad;
+            while x <= x1 + pad {
+                let c = cost(x, y);
+                if c < best.0 {
+                    best = (c, x, y);
+                }
+                x += step;
+            }
+            y += step;
+        }
+        let near = pts
+            .iter()
+            .map(|p| (p.0 - best.1).hypot(p.1 - best.2))
+            .fold(f64::MAX, f64::min);
+        channels.sort_unstable();
+        out.push(LocatedAp {
+            key,
+            bssids,
+            ssids,
+            channels,
+            x: best.1 / mpp,
+            y: best.2 / mpp,
+            max_rssi,
+            samples: pts.len(),
+            confidence: if near < 6.0 && max_rssi > -60 {
+                "high"
+            } else {
+                "low"
+            }
+            .into(),
+        });
+    }
+    out.sort_by(|a, b| b.max_rssi.cmp(&a.max_rssi));
+    out
+}
+
 fn point_segment_distance(px: f64, py: f64, x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
     let (dx, dy) = (x2 - x1, y2 - y1);
     let len2 = dx * dx + dy * dy;
@@ -1159,6 +1312,29 @@ mod tests {
         let ym = best.y / PX_PER_M - MARGIN_M;
         assert!(xm > 30.0 && ym > 14.0, "suggested ({xm:.1}, {ym:.1})");
         assert!(best.coverage_after > best.coverage_before);
+    }
+
+    #[test]
+    fn locates_demo_access_points() {
+        let (samples, plan) = walk_sim();
+        let found = locate_aps(&LocateRequest {
+            samples,
+            meters_per_px: Some(plan.meters_per_px),
+        });
+        let world = SimWorld::new();
+        let mut checked = 0;
+        let mut errors = Vec::new();
+        for ap in found.iter().filter(|a| a.confidence == "high") {
+            let Some(radio) = world.radios.iter().find(|r| ap_key(&r.bssid) == ap.key) else {
+                continue;
+            };
+            let (xm, ym) = (ap.x / PX_PER_M - MARGIN_M, ap.y / PX_PER_M - MARGIN_M);
+            errors.push(((xm - radio.x).hypot(ym - radio.y), radio.ap_name));
+            checked += 1;
+        }
+        assert!(checked >= 4, "only {checked} located");
+        let good = errors.iter().filter(|(e, _)| *e < 4.0).count();
+        assert!(good * 4 >= checked * 3, "errors {errors:?}");
     }
 
     #[test]

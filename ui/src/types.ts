@@ -168,6 +168,8 @@ export interface Reading {
   widthMhz: number;
   noise: number | null;
   security: Security;
+  /** The computer was associated with this BSS when the sample was taken. */
+  connected?: boolean;
 }
 
 export interface Sample {
@@ -198,14 +200,49 @@ export interface VirtualAp {
 export type Layer = "signal" | "secondSignal" | "snr" | "apCount" | "coChannel" | "bestAp" | "throughput";
 export type SurveyMode = "measured" | "predicted";
 
+export interface FloorPlanInfo {
+  name: string;
+  imageDataUrl: string;
+  widthPx: number;
+  heightPx: number;
+  metersPerPx: number | null;
+}
+
+/** A floor that is not being edited right now (the active one lives on the project itself). */
+export interface Floor {
+  id: string;
+  name: string;
+  floorPlan: FloorPlanInfo;
+  samples: Sample[];
+  walls: Wall[];
+  aps: VirtualAp[];
+}
+
 export interface SurveyProject {
   version: 1;
   name: string;
   createdMs: number;
-  floorPlan: { name: string; imageDataUrl: string; widthPx: number; heightPx: number; metersPerPx: number | null };
+  floorPlan: FloorPlanInfo;
   samples: Sample[];
   walls: Wall[];
   aps: VirtualAp[];
+  /** Active floor; projects from before floors existed have one unnamed floor. */
+  floorId?: string;
+  floorName?: string;
+  /** The other floors of the building. */
+  floors?: Floor[];
+}
+
+export interface LocatedAp {
+  key: string;
+  bssids: string[];
+  ssids: string[];
+  channels: number[];
+  x: number;
+  y: number;
+  maxRssi: number;
+  samples: number;
+  confidence: "high" | "low";
 }
 
 export interface Heatmap {

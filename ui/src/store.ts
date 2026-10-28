@@ -39,6 +39,9 @@ interface AppState {
   history: Record<string, RssiPoint[]>;
 
   setModule: (m: ModuleId) => void;
+  /** Sections to preselect the next time Reports opens (e.g. from Survey). */
+  reportPreset: string[] | null;
+  setReportPreset: (s: string[] | null) => void;
   setTheme: (t: Theme) => void;
   init: () => Promise<void>;
   updateSettings: (patch: Partial<Settings>) => Promise<void>;
@@ -81,6 +84,8 @@ export const useApp = create<AppState>((set, get) => ({
   scanPaused: false,
   history: {},
 
+  reportPreset: null,
+  setReportPreset: (reportPreset) => set({ reportPreset }),
   setModule: (module) => {
     try {
       localStorage.setItem("whylag.module", module);
