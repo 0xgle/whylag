@@ -15,6 +15,7 @@ const sha = (pattern) => {
 const base = `https://github.com/0xgle/whylag/releases/download/v${version}`;
 
 // Homebrew: `brew tap 0xgle/whylag https://github.com/0xgle/whylag`
+mkdirSync("Casks", { recursive: true });
 writeFileSync(
   "Casks/whylag.rb",
   `cask "whylag" do
