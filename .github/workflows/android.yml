@@ -20,23 +20,25 @@ permissions:
 
 jobs:
   apk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       NDK_VERSION: 27.2.12479018
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
 
-      - uses: android-actions/setup-android@v3
-
+      # The runner image ships the Android SDK; add the NDK and build tools.
       - name: Android SDK and NDK
         run: |
-          sdkmanager --install "ndk;$NDK_VERSION" "platforms;android-34" "build-tools;34.0.0" > /dev/null
-          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          sdk="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
+          yes | "$sdk/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$sdk/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" "platforms;android-34" "build-tools;34.0.0" > /dev/null
+          echo "NDK_HOME=$sdk/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v5
         with:

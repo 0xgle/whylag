@@ -108,3 +108,47 @@ jobs:
             target/**/release/bundle/appimage/*.AppImage
             target/**/release/bundle/deb/*.deb
           if-no-files-found: ignore
+
+  # The Android APK, attached to the same release.
+  android:
+    needs: release
+    if: needs.release.outputs.id != ''
+    uses: ./.github/workflows/android.yml
+    with:
+      release_id: ${{ needs.release.outputs.id }}
+    secrets: inherit
+
+  # Homebrew cask and winget manifests with the new installers' checksums.
+  packages:
+    needs: [release, build]
+    if: needs.release.outputs.id != ''
+    runs-on: ubuntu-latest
+    env:
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+      - name: Update cask and winget manifests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag=$(gh api repos/${{ github.repository }}/releases/${{ needs.release.outputs.id }} -q .tag_name)
+          mkdir -p assets
+          gh release download "$tag" -D assets -p "*.dmg" -p "*-setup.exe"
+          node packaging/update.mjs "${tag#v}" assets
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks packaging/winget
+          git diff --cached --quiet || (git commit -m "Packages for $tag" && git push)
+          echo "tag=$tag" >> "$GITHUB_ENV"
+      # Opens the winget-pkgs pull request when a token with public_repo scope
+      # is stored as WINGET_TOKEN (the first submission is reviewed by Microsoft).
+      - name: Submit to winget
+        if: env.WINGET_TOKEN != ''
+        uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: M8.WhyLag
+          release-tag: ${{ env.tag }}
+          installers-regex: '_x64-setup\.exe$'
+          token: ${{ secrets.WINGET_TOKEN }}
