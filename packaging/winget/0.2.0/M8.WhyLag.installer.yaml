@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+
+PackageIdentifier: M8.WhyLag
+PackageVersion: 0.2.0
+InstallerType: nullsoft
+Scope: user
+InstallModes:
+  - interactive
+  - silent
+UpgradeBehavior: install
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/0xgle/whylag/releases/download/v0.2.0/WhyLag_0.2.0_x64-setup.exe
+    InstallerSha256: 92EC85975B1E42E034058BD798375206022E4072A7A6BE2A1A94CA03B3D645CB
+ManifestType: installer
+ManifestVersion: 1.6.0

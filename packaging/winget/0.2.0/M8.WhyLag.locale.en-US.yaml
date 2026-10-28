@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+
+PackageIdentifier: M8.WhyLag
+PackageVersion: 0.2.0
+PackageLocale: en-US
+Publisher: M8 Mateusz Glegoła
+PublisherUrl: https://github.com/0xgle
+PackageName: WhyLag
+PackageUrl: https://0xgle.github.io/whylag/
+License: Proprietary
+Copyright: © 2026 M8 Mateusz Glegoła
+ShortDescription: Find out why your network lags. Wi-Fi analyzer, heatmap site survey, device discovery, speed, path and security tests.
+Tags:
+  - wifi
+  - network
+  - speed-test
+  - diagnostics
+  - heatmap
+ReleaseNotesUrl: https://github.com/0xgle/whylag/releases/tag/v0.2.0
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0
