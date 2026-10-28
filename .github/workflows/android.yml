@@ -37,7 +37,7 @@ jobs:
           sdk="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
           yes | "$sdk/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
-          "$sdk/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" "platforms;android-34" "build-tools;34.0.0" > /dev/null
+          "$sdk/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" "platforms;android-36" "platforms;android-34" "build-tools;34.0.0" > /dev/null
           echo "NDK_HOME=$sdk/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v5
@@ -75,7 +75,7 @@ jobs:
         run: |
           for f in init.log build.log; do
             [ -f "$f" ] || continue
-            msg=$(grep -E "^error|error\[|^e: |What went wrong|FAILURE:|> Task .* FAILED|Caused by|cannot find|unresolved|not found" -A4 "$f" | head -c 3500 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
+            msg=$(grep -E "^error|error\[|^e: |What went wrong|FAILURE:|> Task .* FAILED|Caused by|cannot find|unresolved|not found|Dependency|requires|compileSdk" -A8 "$f" | head -c 6000 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
             [ -n "$msg" ] && echo "::error title=$f::$msg"
           done
           true
