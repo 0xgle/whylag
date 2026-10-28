@@ -830,6 +830,17 @@ export const en = {
   "survey.report.title": "Report",
   "survey.report.help": "A printable report of every floor: maps, coverage and located access points.",
   "survey.report.open": "Create survey report",
+  "overlay.open": "Gamer mode",
+  "overlay.openHelp": "A small window that stays on top of your game and shows live lag and its cause.",
+  "overlay.target": "Game or server to watch",
+  "overlay.save": "Watch",
+  "overlay.demo": "Demo",
+  "overlay.stats": "jitter {jitter} ms · loss {loss}%",
+  "overlay.cause.ok": "Smooth",
+  "overlay.cause.wifi": "Lag from Wi-Fi",
+  "overlay.cause.home": "Lag in your network",
+  "overlay.cause.isp": "Lag at your provider",
+  "overlay.cause.offline": "No connection",
 };
 
 export type Dict = typeof en;

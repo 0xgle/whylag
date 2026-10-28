@@ -28,6 +28,12 @@ struct PositionPx {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct LiveReq {
+    target: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct AutoTestReq {
     profile: Option<crate::autotest::Profile>,
 }
@@ -264,6 +270,11 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
                 .await
             };
             to_value(res.map_err(|e| ApiError::new(e, "peer test failed"))?)
+        }
+
+        "live.sample" => {
+            let r: LiveReq = params(p)?;
+            to_value(crate::live::sample(state, r.target).await)
         }
 
         "roam.start" => to_value(crate::roaming::start(state.clone())),

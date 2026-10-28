@@ -10,9 +10,9 @@ import "@fontsource/barlow-semi-condensed/700.css";
 import "uplot/dist/uPlot.min.css";
 import "./styles/app.css";
 import { App } from "./App";
+import { Overlay } from "./modules/overlay/Overlay";
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+// The gamer overlay is a second window of the same app.
+const overlay = window.location.hash === "#overlay";
+
+createRoot(document.getElementById("root")!).render(<StrictMode>{overlay ? <Overlay /> : <App />}</StrictMode>);

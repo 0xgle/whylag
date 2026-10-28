@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Gauge, Play, Square, Network } from "lucide-react";
-import { call, type CallError } from "../../api";
+import { Gamepad2, Gauge, Play, Square, Network } from "lucide-react";
+import { call, openOverlay, type CallError } from "../../api";
 import { useApp } from "../../store";
 import { fmtNumber, translateMaybe, useLang, useT, type Key } from "../../i18n";
 import type { LatencyStats, PerfRun } from "../../types";
@@ -294,6 +294,11 @@ export function PerformanceModule() {
         {t("perf.includeSpeed")}
       </label>
       {running && run && <Progress value={run.progress} label={translateMaybe(lang, `perf.phase.${run.phase}`, t("perf.running"))} />}
+      <span style={{ flex: 1 }} />
+      <button className="btn btn-ghost" onClick={() => openOverlay()} title={t("overlay.openHelp")}>
+        <Gamepad2 size={15} />
+        {t("overlay.open")}
+      </button>
     </div>
   );
 

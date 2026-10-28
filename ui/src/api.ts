@@ -44,6 +44,16 @@ export async function call<T>(method: string, params: unknown = {}): Promise<T> 
   return body.result as T;
 }
 
+/** Opens the always-on-top gamer overlay (a popup window in the browser). */
+export async function openOverlay() {
+  if (isTauri) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("open_overlay");
+  } else {
+    window.open(`${location.pathname}#overlay`, "whylag-overlay", "width=300,height=150");
+  }
+}
+
 /** Opens an external URL or settings page (ms-settings:...) in the OS. */
 export async function openExternal(url: string) {
   if (isTauri) {

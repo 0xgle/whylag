@@ -13,6 +13,7 @@ pub mod util;
 pub mod advisor;
 pub mod autotest;
 pub mod discovery;
+pub mod live;
 pub mod monitor;
 pub mod net;
 pub mod oui;
