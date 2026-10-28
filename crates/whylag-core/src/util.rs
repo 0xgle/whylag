@@ -1,5 +1,31 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Runs a background job future and turns a panic into an error string, so
+/// the job's `running` flag is always cleared by the caller.
+pub async fn catch_job<F, T>(fut: F) -> Result<T, String>
+where
+    F: std::future::Future<Output = Result<T, String>>,
+{
+    use futures_util::FutureExt;
+    match std::panic::AssertUnwindSafe(fut).catch_unwind().await {
+        Ok(r) => r,
+        Err(_) => Err("internal".to_string()),
+    }
+}
+
+/// Reads at most `limit` bytes of a response body and decodes it lossily.
+pub async fn read_capped(mut resp: reqwest::Response, limit: usize) -> String {
+    let mut buf: Vec<u8> = Vec::new();
+    while buf.len() < limit {
+        match resp.chunk().await {
+            Ok(Some(chunk)) => buf.extend_from_slice(&chunk),
+            _ => break,
+        }
+    }
+    buf.truncate(limit);
+    String::from_utf8_lossy(&buf).into_owned()
+}
+
 /// Milliseconds since the Unix epoch.
 pub fn now_ms() -> u64 {
     SystemTime::now()
@@ -10,7 +36,11 @@ pub fn now_ms() -> u64 {
 
 /// Formats six MAC bytes as lowercase `aa:bb:cc:dd:ee:ff`.
 pub fn fmt_mac(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(":")
+    bytes
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 /// Normalises any MAC notation (`AA-BB-CC-DD-EE-FF`, `aabb.ccdd.eeff`, ...) to
@@ -45,7 +75,11 @@ pub fn median(values: &[f64]) -> Option<f64> {
     }
     v.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let mid = v.len() / 2;
-    Some(if v.len() % 2 == 0 { (v[mid - 1] + v[mid]) / 2.0 } else { v[mid] })
+    Some(if v.len() % 2 == 0 {
+        (v[mid - 1] + v[mid]) / 2.0
+    } else {
+        v[mid]
+    })
 }
 
 /// Percentile (0..=100) using linear interpolation between closest ranks.
@@ -72,11 +106,18 @@ pub fn jitter(values: &[f64]) -> Option<f64> {
 
 /// Runs a system tool and returns its stdout. Never opens a console window on
 /// Windows. Fails if the tool is missing, exits non-zero or exceeds `timeout`.
-pub fn run_tool(program: &str, args: &[&str], timeout: std::time::Duration) -> std::io::Result<String> {
+pub fn run_tool(
+    program: &str,
+    args: &[&str],
+    timeout: std::time::Duration,
+) -> std::io::Result<String> {
     use std::io::Read;
     use std::process::{Command, Stdio};
     let mut cmd = Command::new(program);
-    cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     // Force English, dot-decimal output from tools whose text we parse.
     cmd.env("LC_ALL", "C").env("LANG", "C");
     #[cfg(windows)]
@@ -101,14 +142,20 @@ pub fn run_tool(program: &str, args: &[&str], timeout: std::time::Duration) -> s
                 if let Some(mut e) = child.stderr.take() {
                     let _ = e.read_to_string(&mut err);
                 }
-                return Err(std::io::Error::other(format!("{program} exited with {status}: {}", err.trim())));
+                return Err(std::io::Error::other(format!(
+                    "{program} exited with {status}: {}",
+                    err.trim()
+                )));
             }
             return Ok(String::from_utf8_lossy(&out).into_owned());
         }
         if started.elapsed() > timeout {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, format!("{program} timed out")));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("{program} timed out"),
+            ));
         }
         std::thread::sleep(std::time::Duration::from_millis(25));
     }
@@ -116,11 +163,18 @@ pub fn run_tool(program: &str, args: &[&str], timeout: std::time::Duration) -> s
 
 /// Like [`run_tool`] but returns stdout even when the tool exits non-zero
 /// (traceroute and ping report partial results that way).
-pub fn run_tool_lenient(program: &str, args: &[&str], timeout: std::time::Duration) -> std::io::Result<String> {
+pub fn run_tool_lenient(
+    program: &str,
+    args: &[&str],
+    timeout: std::time::Duration,
+) -> std::io::Result<String> {
     use std::io::Read;
     use std::process::{Command, Stdio};
     let mut cmd = Command::new(program);
-    cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    cmd.args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
     cmd.env("LC_ALL", "C").env("LANG", "C");
     #[cfg(windows)]
     {
@@ -155,12 +209,24 @@ pub fn base64(data: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
         let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
         out.push(ALPHABET[(n >> 18) as usize & 63] as char);
         out.push(ALPHABET[(n >> 12) as usize & 63] as char);
-        out.push(if chunk.len() > 1 { ALPHABET[(n >> 6) as usize & 63] as char } else { '=' });
-        out.push(if chunk.len() > 2 { ALPHABET[n as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            ALPHABET[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            ALPHABET[n as usize & 63] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -197,7 +263,14 @@ mod tests {
 
     #[test]
     fn base64_round_trip() {
-        for s in [&b""[..], b"f", b"fo", b"foo", b"foobar", &[0u8, 255, 128, 7]] {
+        for s in [
+            &b""[..],
+            b"f",
+            b"fo",
+            b"foo",
+            b"foobar",
+            &[0u8, 255, 128, 7],
+        ] {
             assert_eq!(base64_decode(&base64(s)).unwrap(), s);
         }
         assert!(base64_decode("@@").is_none());
@@ -213,8 +286,14 @@ mod tests {
 
     #[test]
     fn mac_normalisation() {
-        assert_eq!(normalize_mac("AA-BB-CC-00-11-22").as_deref(), Some("aa:bb:cc:00:11:22"));
-        assert_eq!(normalize_mac("aabb.cc00.1122").as_deref(), Some("aa:bb:cc:00:11:22"));
+        assert_eq!(
+            normalize_mac("AA-BB-CC-00-11-22").as_deref(),
+            Some("aa:bb:cc:00:11:22")
+        );
+        assert_eq!(
+            normalize_mac("aabb.cc00.1122").as_deref(),
+            Some("aa:bb:cc:00:11:22")
+        );
         assert_eq!(normalize_mac("nope"), None);
     }
 

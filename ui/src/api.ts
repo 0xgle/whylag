@@ -54,14 +54,22 @@ export async function openExternal(url: string) {
   }
 }
 
+type Filters = { name: string; extensions: string[] }[];
+
+/** The desktop app shows the save dialog and writes the file itself. */
+async function saveNative(defaultName: string, content: string, base64: boolean, filters?: Filters): Promise<string | null> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  try {
+    return await invoke<string | null>("save_file", { defaultName, filters, content, base64 });
+  } catch (e) {
+    throw new CallError(asApiError(e));
+  }
+}
+
 /** Saves text to a file chosen by the user. Falls back to a download in the browser. */
 export async function saveTextFile(defaultName: string, content: string, filters?: { name: string; extensions: string[] }[]) {
   if (isTauri) {
-    const { save } = await import("@tauri-apps/plugin-dialog");
-    const path = await save({ defaultPath: defaultName, filters });
-    if (!path) return null;
-    await call("fs.writeText", { path, content });
-    return path;
+    return saveNative(defaultName, content, false, filters);
   }
   const blob = new Blob([content], { type: "application/octet-stream" });
   const a = document.createElement("a");
@@ -94,11 +102,7 @@ export async function openFile(accept: string, asDataUrl = false): Promise<{ nam
 /** Saves a data URL (e.g. a PNG export) to a file chosen by the user. */
 export async function saveDataUrl(defaultName: string, dataUrl: string, filters?: { name: string; extensions: string[] }[]) {
   if (isTauri) {
-    const { save } = await import("@tauri-apps/plugin-dialog");
-    const path = await save({ defaultPath: defaultName, filters });
-    if (!path) return null;
-    await call("fs.writeBase64", { path, content: dataUrl.slice(dataUrl.indexOf(",") + 1) });
-    return path;
+    return saveNative(defaultName, dataUrl.slice(dataUrl.indexOf(",") + 1), true, filters);
   }
   const a = document.createElement("a");
   a.href = dataUrl;

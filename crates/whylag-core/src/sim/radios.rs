@@ -28,7 +28,12 @@ pub struct SimRadio {
 
 impl SimRadio {
     pub fn emitter(&self) -> Emitter {
-        Emitter { x: self.x, y: self.y, eirp_dbm: self.eirp_dbm, freq_mhz: rf::channel_to_freq(self.channel, self.band) }
+        Emitter {
+            x: self.x,
+            y: self.y,
+            eirp_dbm: self.eirp_dbm,
+            freq_mhz: rf::channel_to_freq(self.channel, self.band),
+        }
     }
 }
 
@@ -44,20 +49,88 @@ struct Ap {
 }
 
 const ACME_APS: &[Ap] = &[
-    Ap { name: "AP-01 Open Space A", id: 1, x: 5.0, y: 5.0, ch24: 1, width24: 20, ch5: 36, ch6: None },
-    Ap { name: "AP-02 Open Space A", id: 2, x: 13.0, y: 6.0, ch24: 6, width24: 20, ch5: 52, ch6: Some(37) },
+    Ap {
+        name: "AP-01 Open Space A",
+        id: 1,
+        x: 5.0,
+        y: 5.0,
+        ch24: 1,
+        width24: 20,
+        ch5: 36,
+        ch6: None,
+    },
+    Ap {
+        name: "AP-02 Open Space A",
+        id: 2,
+        x: 13.0,
+        y: 6.0,
+        ch24: 6,
+        width24: 20,
+        ch5: 52,
+        ch6: Some(37),
+    },
     // Misconfigured: 40 MHz on 2.4 GHz in a crowded band.
-    Ap { name: "AP-03 Office North", id: 3, x: 36.0, y: 4.0, ch24: 11, width24: 40, ch5: 100, ch6: None },
-    Ap { name: "AP-04 Open Space B", id: 4, x: 9.0, y: 21.0, ch24: 6, width24: 20, ch5: 116, ch6: None },
-    Ap { name: "AP-05 Corridor", id: 5, x: 25.0, y: 13.0, ch24: 1, width24: 20, ch5: 149, ch6: None },
+    Ap {
+        name: "AP-03 Office North",
+        id: 3,
+        x: 36.0,
+        y: 4.0,
+        ch24: 11,
+        width24: 40,
+        ch5: 100,
+        ch6: None,
+    },
+    Ap {
+        name: "AP-04 Open Space B",
+        id: 4,
+        x: 9.0,
+        y: 21.0,
+        ch24: 6,
+        width24: 20,
+        ch5: 116,
+        ch6: None,
+    },
+    Ap {
+        name: "AP-05 Corridor",
+        id: 5,
+        x: 25.0,
+        y: 13.0,
+        ch24: 1,
+        width24: 20,
+        ch5: 149,
+        ch6: None,
+    },
 ];
 
-fn office(ap: &Ap, ssid: &'static str, band: Band, channel: u32, width: u32, suffix: u8) -> SimRadio {
+fn office(
+    ap: &Ap,
+    ssid: &'static str,
+    band: Band,
+    channel: u32,
+    width: u32,
+    suffix: u8,
+) -> SimRadio {
     let guest = ssid.ends_with("Guest");
     let (security, pmf, roaming) = match (guest, band) {
         (true, _) => (Security::Open, Pmf::Disabled, Roaming::default()),
-        (false, Band::B6) => (Security::Wpa3, Pmf::Required, Roaming { k: true, v: true, r: true }),
-        (false, _) => (Security::Wpa2Wpa3, Pmf::Capable, Roaming { k: true, v: true, r: true }),
+        (false, Band::B6) => (
+            Security::Wpa3,
+            Pmf::Required,
+            Roaming {
+                k: true,
+                v: true,
+                r: true,
+            },
+        ),
+        (false, _) => (
+            Security::Wpa2Wpa3,
+            Pmf::Capable,
+            Roaming {
+                k: true,
+                v: true,
+                r: true,
+            },
+        ),
     };
     SimRadio {
         ssid,
@@ -112,7 +185,11 @@ fn neighbour(
         width_mhz: width,
         eirp_dbm: eirp,
         security,
-        pmf: if security == Security::Wpa3 || security == Security::Wpa2Wpa3 { Pmf::Capable } else { Pmf::Disabled },
+        pmf: if security == Security::Wpa3 || security == Security::Wpa2Wpa3 {
+            Pmf::Capable
+        } else {
+            Pmf::Disabled
+        },
         roaming: Roaming::default(),
         wps,
         wifi_gen,
@@ -138,22 +215,178 @@ pub fn all() -> Vec<SimRadio> {
         }
     }
     radios.extend([
-        neighbour("UPC2471139", "f4:f2:6d:3a:11:c2", -5.0, 8.0, B24, 6, 20, 20.0, Wpa2, true, Some(4)),
-        neighbour("UPC2471139", "f4:f2:6d:3a:11:c3", -5.0, 8.0, B5, 40, 80, 20.0, Wpa2, true, Some(5)),
-        neighbour("Orange_Swiatlowod_8A2C", "00:0e:59:8a:2c:01", 21.0, 31.0, B24, 11, 20, 20.0, Wpa2, false, Some(6)),
-        neighbour("Orange_Swiatlowod_8A2C", "00:0e:59:8a:2c:02", 21.0, 31.0, B5, 100, 80, 20.0, Wpa2, false, Some(6)),
+        neighbour(
+            "UPC2471139",
+            "f4:f2:6d:3a:11:c2",
+            -5.0,
+            8.0,
+            B24,
+            6,
+            20,
+            20.0,
+            Wpa2,
+            true,
+            Some(4),
+        ),
+        neighbour(
+            "UPC2471139",
+            "f4:f2:6d:3a:11:c3",
+            -5.0,
+            8.0,
+            B5,
+            40,
+            80,
+            20.0,
+            Wpa2,
+            true,
+            Some(5),
+        ),
+        neighbour(
+            "Orange_Swiatlowod_8A2C",
+            "00:0e:59:8a:2c:01",
+            21.0,
+            31.0,
+            B24,
+            11,
+            20,
+            20.0,
+            Wpa2,
+            false,
+            Some(6),
+        ),
+        neighbour(
+            "Orange_Swiatlowod_8A2C",
+            "00:0e:59:8a:2c:02",
+            21.0,
+            31.0,
+            B5,
+            100,
+            80,
+            20.0,
+            Wpa2,
+            false,
+            Some(6),
+        ),
         // Bad neighbour: 40 MHz on channel 3 overlaps everything on 2.4 GHz.
-        neighbour("PLAY_INTERNET_5G_4F1A", "00:18:82:4f:1a:01", 47.0, 18.0, B24, 3, 40, 20.0, Wpa2Wpa3, false, Some(6)),
-        neighbour("Netia-2C3D9F", "00:15:eb:2c:3d:9f", 30.0, -5.0, B24, 9, 20, 20.0, Wpa2, true, Some(4)),
-        neighbour("FRITZ!Box 7590 KQ", "00:04:0e:7a:55:10", -7.0, 22.0, B24, 1, 20, 20.0, Wpa2, false, Some(5)),
-        neighbour("FRITZ!Box 7590 KQ", "00:04:0e:7a:55:11", -7.0, 22.0, B5, 36, 160, 20.0, Wpa2, false, Some(5)),
-        neighbour("DIRECT-7B-HP Laser 107w", "00:01:e6:7b:00:01", 4.0, 24.0, B24, 6, 20, 12.0, Wpa2, true, Some(4)),
-        neighbour("Magazyn", "00:0c:41:44:55:66", 46.0, 4.0, B24, 9, 20, 16.0, Wep, false, None),
+        neighbour(
+            "PLAY_INTERNET_5G_4F1A",
+            "00:18:82:4f:1a:01",
+            47.0,
+            18.0,
+            B24,
+            3,
+            40,
+            20.0,
+            Wpa2Wpa3,
+            false,
+            Some(6),
+        ),
+        neighbour(
+            "Netia-2C3D9F",
+            "00:15:eb:2c:3d:9f",
+            30.0,
+            -5.0,
+            B24,
+            9,
+            20,
+            20.0,
+            Wpa2,
+            true,
+            Some(4),
+        ),
+        neighbour(
+            "FRITZ!Box 7590 KQ",
+            "00:04:0e:7a:55:10",
+            -7.0,
+            22.0,
+            B24,
+            1,
+            20,
+            20.0,
+            Wpa2,
+            false,
+            Some(5),
+        ),
+        neighbour(
+            "FRITZ!Box 7590 KQ",
+            "00:04:0e:7a:55:11",
+            -7.0,
+            22.0,
+            B5,
+            36,
+            160,
+            20.0,
+            Wpa2,
+            false,
+            Some(5),
+        ),
+        neighbour(
+            "DIRECT-7B-HP Laser 107w",
+            "00:01:e6:7b:00:01",
+            4.0,
+            24.0,
+            B24,
+            6,
+            20,
+            12.0,
+            Wpa2,
+            true,
+            Some(4),
+        ),
+        neighbour(
+            "Magazyn",
+            "00:0c:41:44:55:66",
+            46.0,
+            4.0,
+            B24,
+            9,
+            20,
+            16.0,
+            Wep,
+            false,
+            None,
+        ),
         // Evil twin: an open network impersonating the corporate SSID.
-        neighbour("Acme-Office", "00:0a:eb:66:77:88", 16.0, 22.0, B24, 6, 20, 14.0, Open, false, Some(4)),
-        neighbour("SmartPlug-3F2A", "00:4b:12:3f:2a:01", 25.0, 22.0, B24, 1, 20, 8.0, Wpa2, false, Some(4)),
+        neighbour(
+            "Acme-Office",
+            "00:0a:eb:66:77:88",
+            16.0,
+            22.0,
+            B24,
+            6,
+            20,
+            14.0,
+            Open,
+            false,
+            Some(4),
+        ),
+        neighbour(
+            "SmartPlug-3F2A",
+            "00:4b:12:3f:2a:01",
+            25.0,
+            22.0,
+            B24,
+            1,
+            20,
+            8.0,
+            Wpa2,
+            false,
+            Some(4),
+        ),
     ]);
-    let mut hidden = neighbour("", "00:00:0c:5e:a0:01", 36.0, 8.0, B5, 44, 40, 17.0, Wpa2Enterprise, false, Some(5));
+    let mut hidden = neighbour(
+        "",
+        "00:00:0c:5e:a0:01",
+        36.0,
+        8.0,
+        B5,
+        44,
+        40,
+        17.0,
+        Wpa2Enterprise,
+        false,
+        Some(5),
+    );
     hidden.hidden = true;
     hidden.pmf = Pmf::Capable;
     radios.push(hidden);

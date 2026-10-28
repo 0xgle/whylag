@@ -78,7 +78,7 @@ export function OverviewModule() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    call<Diagnosis>("advisor.diagnose")
+    call<Diagnosis>("advisor.diagnose", { tzOffsetMin: -new Date().getTimezoneOffset() })
       .then((d) => {
         cachedDiagnosis = d;
         setDiag(d);
@@ -102,7 +102,7 @@ export function OverviewModule() {
     setSteps({ ...state });
     try {
       mark("wifi", "running");
-      await call("wifi.scan");
+      await call("wifi.scan", { trigger: true });
       mark("wifi", "done");
       mark("performance", "running");
       if (speed) mark("speed", "running");
@@ -124,7 +124,7 @@ export function OverviewModule() {
       await call("security.scan");
       mark("security", "done");
       mark("advisor", "running");
-      const d = await call<Diagnosis>("advisor.diagnose");
+      const d = await call<Diagnosis>("advisor.diagnose", { tzOffsetMin: -new Date().getTimezoneOffset() });
       cachedDiagnosis = d;
       setDiag(d);
       mark("advisor", "done");

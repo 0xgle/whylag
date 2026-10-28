@@ -71,7 +71,7 @@ export function ReportsModule() {
     setBusy(true);
     try {
       const [diag, scan, discovery, perf, path, security, status] = await Promise.all([
-        call<Diagnosis>("advisor.diagnose").catch(() => null),
+        call<Diagnosis>("advisor.diagnose", { tzOffsetMin: -new Date().getTimezoneOffset() }).catch(() => null),
         call<ScanResult>("wifi.scan").catch(() => null),
         call<DiscoveryRun>("discovery.status").catch(() => null),
         call<PerfRun>("perf.status").catch(() => null),

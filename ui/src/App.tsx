@@ -65,13 +65,16 @@ const MODULES: Partial<Record<ModuleId, ComponentType>> = {
 function useScanPoller() {
   const paused = useApp((s) => s.scanPaused);
   const dataSource = useApp((s) => s.settings?.dataSource);
+  // Only the Wi-Fi and Survey screens ask the adapter to scan: every scan
+  // takes the radio off channel for a moment, which itself causes lag.
+  const active = useApp((s) => s.module === "wifi" || s.module === "survey");
   useEffect(() => {
     if (paused) return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
       try {
-        const r = await call<ScanResult>("wifi.scan");
+        const r = await call<ScanResult>("wifi.scan", { trigger: active });
         if (alive) useApp.getState().pushScan(r);
       } catch (e) {
         const err = e as { code?: string; message?: string };
@@ -84,7 +87,7 @@ function useScanPoller() {
       alive = false;
       clearTimeout(timer);
     };
-  }, [paused, dataSource]);
+  }, [paused, dataSource, active]);
 }
 
 export function App() {

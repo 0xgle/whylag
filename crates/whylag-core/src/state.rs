@@ -15,11 +15,14 @@ pub struct AppState {
     pub perf_handle: crate::perf::PerfHandle,
     pub path: Mutex<crate::path::PathRun>,
     pub path_handle: crate::path::PathHandle,
-    pub peer_server: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    pub peer_server: Mutex<Option<crate::perf::peer::PeerServer>>,
     pub monitor: crate::monitor::MonitorHandle,
     pub security: Mutex<Option<crate::security::SecurityReport>>,
     /// Set when the last Wi-Fi scan fell back to the simulator.
     pub sim_fallback: RwLock<bool>,
+    /// When the adapter was last asked to scan (ms), to throttle requests:
+    /// every active scan briefly takes the radio off channel.
+    pub last_scan_trigger_ms: std::sync::atomic::AtomicU64,
 }
 
 impl AppState {
@@ -39,6 +42,7 @@ impl AppState {
             monitor: Default::default(),
             security: Mutex::new(None),
             sim_fallback: RwLock::new(false),
+            last_scan_trigger_ms: Default::default(),
         })
     }
 
@@ -69,7 +73,11 @@ impl AppState {
                     cur.insert(k.clone(), v.clone());
                 }
             }
-            _ => return Err(crate::ApiError::bad_params("settings patch must be an object")),
+            _ => {
+                return Err(crate::ApiError::bad_params(
+                    "settings patch must be an object",
+                ))
+            }
         }
         let updated: Settings = serde_json::from_value(current)?;
         updated.save(&self.data_dir.join("settings.json"))?;

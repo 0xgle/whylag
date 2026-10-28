@@ -51,9 +51,14 @@ pub fn parse_response(buf: &[u8], id: u16) -> Option<NetbiosInfo> {
 pub async fn query(ip: IpAddr, timeout: Duration) -> Option<NetbiosInfo> {
     let sock = tokio::net::UdpSocket::bind("0.0.0.0:0").await.ok()?;
     let id: u16 = rand::random();
-    sock.send_to(&build_query(id), SocketAddr::new(ip, 137)).await.ok()?;
+    sock.send_to(&build_query(id), SocketAddr::new(ip, 137))
+        .await
+        .ok()?;
     let mut buf = [0u8; 1024];
-    let (n, _) = tokio::time::timeout(timeout, sock.recv_from(&mut buf)).await.ok()?.ok()?;
+    let (n, _) = tokio::time::timeout(timeout, sock.recv_from(&mut buf))
+        .await
+        .ok()?
+        .ok()?;
     parse_response(&buf[..n], id)
 }
 

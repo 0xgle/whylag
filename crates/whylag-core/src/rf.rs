@@ -79,7 +79,11 @@ pub fn occupied_range(channel: u32, band: Band, width_mhz: u32) -> (f64, f64) {
         // 2.4 GHz: 20 MHz channels overlap neighbours; 40 MHz extends up or down.
         // We assume "above" for channels 1-7 and "below" otherwise.
         if width_mhz >= 40 {
-            return if channel <= 7 { (primary - 10.0, primary + 30.0) } else { (primary - 30.0, primary + 10.0) };
+            return if channel <= 7 {
+                (primary - 10.0, primary + 30.0)
+            } else {
+                (primary - 30.0, primary + 10.0)
+            };
         }
         return (primary - 11.0, primary + 11.0);
     }
@@ -184,7 +188,8 @@ pub fn segments_intersect(p1: (f64, f64), p2: (f64, f64), q1: (f64, f64), q2: (f
     let d2 = orient(q1.0, q1.1, q2.0, q2.1, p2.0, p2.1);
     let d3 = orient(p1.0, p1.1, p2.0, p2.1, q1.0, q1.1);
     let d4 = orient(p1.0, p1.1, p2.0, p2.1, q2.0, q2.1);
-    ((d1 > 0.0 && d2 < 0.0) || (d1 < 0.0 && d2 > 0.0)) && ((d3 > 0.0 && d4 < 0.0) || (d3 < 0.0 && d4 > 0.0))
+    ((d1 > 0.0 && d2 < 0.0) || (d1 < 0.0 && d2 > 0.0))
+        && ((d3 > 0.0 && d4 < 0.0) || (d3 < 0.0 && d4 > 0.0))
 }
 
 /// Total wall attenuation between two points.
@@ -198,9 +203,13 @@ pub fn wall_loss_db(from: (f64, f64), to: (f64, f64), walls: &[Wall], band: Band
 
 /// Predicted received signal strength (dBm) at (x, y).
 pub fn predict_rssi(emitter: &Emitter, x: f64, y: f64, walls: &[Wall]) -> f64 {
-    let band = freq_to_channel(emitter.freq_mhz).map(|(_, b)| b).unwrap_or(Band::B5);
+    let band = freq_to_channel(emitter.freq_mhz)
+        .map(|(_, b)| b)
+        .unwrap_or(Band::B5);
     let d = ((emitter.x - x).powi(2) + (emitter.y - y).powi(2)).sqrt();
-    emitter.eirp_dbm - path_loss_db(d, emitter.freq_mhz) - wall_loss_db((emitter.x, emitter.y), (x, y), walls, band)
+    emitter.eirp_dbm
+        - path_loss_db(d, emitter.freq_mhz)
+        - wall_loss_db((emitter.x, emitter.y), (x, y), walls, band)
 }
 
 #[cfg(test)]
@@ -216,7 +225,13 @@ mod tests {
         assert_eq!(freq_to_channel(5745), Some((149, Band::B5)));
         assert_eq!(freq_to_channel(5955), Some((1, Band::B6)));
         assert_eq!(freq_to_channel(6115), Some((33, Band::B6)));
-        for (ch, band) in [(1, Band::B24), (11, Band::B24), (36, Band::B5), (165, Band::B5), (37, Band::B6)] {
+        for (ch, band) in [
+            (1, Band::B24),
+            (11, Band::B24),
+            (36, Band::B5),
+            (165, Band::B5),
+            (37, Band::B6),
+        ] {
             assert_eq!(freq_to_channel(channel_to_freq(ch, band)), Some((ch, band)));
         }
     }
@@ -224,10 +239,22 @@ mod tests {
     #[test]
     fn bonded_blocks_align() {
         // Channel 36 and 48 share the same 80 MHz block (36-48).
-        assert_eq!(occupied_range(36, Band::B5, 80), occupied_range(48, Band::B5, 80));
-        assert_ne!(occupied_range(36, Band::B5, 80), occupied_range(52, Band::B5, 80));
-        assert!(overlaps(occupied_range(1, Band::B24, 20), occupied_range(3, Band::B24, 20)));
-        assert!(!overlaps(occupied_range(1, Band::B24, 20), occupied_range(6, Band::B24, 20)));
+        assert_eq!(
+            occupied_range(36, Band::B5, 80),
+            occupied_range(48, Band::B5, 80)
+        );
+        assert_ne!(
+            occupied_range(36, Band::B5, 80),
+            occupied_range(52, Band::B5, 80)
+        );
+        assert!(overlaps(
+            occupied_range(1, Band::B24, 20),
+            occupied_range(3, Band::B24, 20)
+        ));
+        assert!(!overlaps(
+            occupied_range(1, Band::B24, 20),
+            occupied_range(6, Band::B24, 20)
+        ));
         assert_eq!(occupied_range(149, Band::B5, 80), (5735.0, 5815.0));
         assert_eq!(occupied_range(161, Band::B5, 80), (5735.0, 5815.0));
         assert_eq!(occupied_range(100, Band::B5, 160), (5490.0, 5650.0));
@@ -236,9 +263,20 @@ mod tests {
 
     #[test]
     fn walls_attenuate() {
-        let e = Emitter { x: 0.0, y: 0.0, eirp_dbm: 20.0, freq_mhz: 5180 };
+        let e = Emitter {
+            x: 0.0,
+            y: 0.0,
+            eirp_dbm: 20.0,
+            freq_mhz: 5180,
+        };
         let open = predict_rssi(&e, 10.0, 0.0, &[]);
-        let wall = Wall { x1: 5.0, y1: -5.0, x2: 5.0, y2: 5.0, material: Material::Concrete };
+        let wall = Wall {
+            x1: 5.0,
+            y1: -5.0,
+            x2: 5.0,
+            y2: 5.0,
+            material: Material::Concrete,
+        };
         let blocked = predict_rssi(&e, 10.0, 0.0, &[wall]);
         assert!((open - blocked - 20.0).abs() < 1e-9);
         // Sanity: an AP 10 m away in open space on 5 GHz lands in a realistic range.
@@ -247,7 +285,12 @@ mod tests {
 
     #[test]
     fn signal_decreases_with_distance() {
-        let e = Emitter { x: 0.0, y: 0.0, eirp_dbm: 20.0, freq_mhz: 2437 };
+        let e = Emitter {
+            x: 0.0,
+            y: 0.0,
+            eirp_dbm: 20.0,
+            freq_mhz: 2437,
+        };
         assert!(predict_rssi(&e, 2.0, 0.0, &[]) > predict_rssi(&e, 20.0, 0.0, &[]));
     }
 }

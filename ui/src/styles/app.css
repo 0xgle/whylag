@@ -1797,3 +1797,15 @@ table.data th.num {
   color: var(--ink-3);
   padding: 6px 0 4px;
 }
+
+.peer-code {
+  margin-top: 4px;
+  font-size: 15px;
+}
+
+.peer-code b {
+  font-family: var(--font-readout);
+  font-size: 22px;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+}

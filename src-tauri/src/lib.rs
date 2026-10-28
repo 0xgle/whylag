@@ -12,6 +12,46 @@ async fn api(
     whylag_core::api::dispatch(state.inner(), &method, params).await
 }
 
+#[derive(serde::Deserialize)]
+struct Filter {
+    name: String,
+    extensions: Vec<String>,
+}
+
+/// Asks where to save with a native dialog and writes the file. The path never
+/// comes from the web view, so page script cannot write anywhere on its own.
+#[tauri::command]
+async fn save_file(
+    app: tauri::AppHandle,
+    default_name: String,
+    filters: Option<Vec<Filter>>,
+    content: String,
+    base64: bool,
+) -> Result<Option<String>, ApiError> {
+    use tauri_plugin_dialog::DialogExt;
+    let bytes = if base64 {
+        whylag_core::util::base64_decode(&content)
+            .ok_or_else(|| ApiError::bad_params("invalid base64"))?
+    } else {
+        content.into_bytes()
+    };
+    let picked = tokio::task::spawn_blocking(move || {
+        let mut dialog = app.dialog().file().set_file_name(&default_name);
+        for f in filters.unwrap_or_default() {
+            let exts: Vec<&str> = f.extensions.iter().map(String::as_str).collect();
+            dialog = dialog.add_filter(&f.name, &exts);
+        }
+        dialog.blocking_save_file()
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?;
+    let Some(path) = picked.and_then(|p| p.into_path().ok()) else {
+        return Ok(None);
+    };
+    std::fs::write(&path, bytes)?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -25,7 +65,7 @@ pub fn run() {
             app.manage(AppState::new(data_dir));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![api])
+        .invoke_handler(tauri::generate_handler![api, save_file])
         .run(tauri::generate_context!())
         .expect("error while running WhyLag");
 }

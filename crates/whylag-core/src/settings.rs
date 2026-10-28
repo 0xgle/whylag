@@ -62,6 +62,9 @@ impl Settings {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        std::fs::write(path, serde_json::to_vec_pretty(self).expect("settings serialise"))
+        std::fs::write(
+            path,
+            serde_json::to_vec_pretty(self).expect("settings serialise"),
+        )
     }
 }

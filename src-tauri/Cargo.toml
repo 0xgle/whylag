@@ -19,5 +19,6 @@ whylag-core = { path = "../crates/whylag-core" }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
+serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

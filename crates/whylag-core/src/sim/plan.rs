@@ -5,7 +5,13 @@ use crate::rf::{Material, Wall};
 use serde::Serialize;
 
 fn w(x1: f64, y1: f64, x2: f64, y2: f64, material: Material) -> Wall {
-    Wall { x1, y1, x2, y2, material }
+    Wall {
+        x1,
+        y1,
+        x2,
+        y2,
+        material,
+    }
 }
 
 /// Walls in metres. Door gaps are real gaps, so signal leaks through doorways.
@@ -61,16 +67,76 @@ struct Room {
 }
 
 const ROOMS: &[Room] = &[
-    Room { name: "Open Space A", x: 0.0, y: 0.0, w: 18.0, h: 11.0 },
-    Room { name: "Meeting 1", x: 18.0, y: 0.0, w: 6.0, h: 11.0 },
-    Room { name: "Meeting 2", x: 24.0, y: 0.0, w: 6.0, h: 11.0 },
-    Room { name: "Office North", x: 30.0, y: 0.0, w: 12.0, h: 11.0 },
-    Room { name: "Corridor", x: 0.0, y: 11.0, w: 42.0, h: 4.0 },
-    Room { name: "Open Space B", x: 0.0, y: 15.0, w: 20.0, h: 11.0 },
-    Room { name: "Lift", x: 20.0, y: 15.0, w: 3.0, h: 4.0 },
-    Room { name: "Kitchen", x: 20.0, y: 19.0, w: 7.0, h: 7.0 },
-    Room { name: "Server Room", x: 27.0, y: 15.0, w: 5.0, h: 11.0 },
-    Room { name: "Office South-East", x: 32.0, y: 15.0, w: 10.0, h: 11.0 },
+    Room {
+        name: "Open Space A",
+        x: 0.0,
+        y: 0.0,
+        w: 18.0,
+        h: 11.0,
+    },
+    Room {
+        name: "Meeting 1",
+        x: 18.0,
+        y: 0.0,
+        w: 6.0,
+        h: 11.0,
+    },
+    Room {
+        name: "Meeting 2",
+        x: 24.0,
+        y: 0.0,
+        w: 6.0,
+        h: 11.0,
+    },
+    Room {
+        name: "Office North",
+        x: 30.0,
+        y: 0.0,
+        w: 12.0,
+        h: 11.0,
+    },
+    Room {
+        name: "Corridor",
+        x: 0.0,
+        y: 11.0,
+        w: 42.0,
+        h: 4.0,
+    },
+    Room {
+        name: "Open Space B",
+        x: 0.0,
+        y: 15.0,
+        w: 20.0,
+        h: 11.0,
+    },
+    Room {
+        name: "Lift",
+        x: 20.0,
+        y: 15.0,
+        w: 3.0,
+        h: 4.0,
+    },
+    Room {
+        name: "Kitchen",
+        x: 20.0,
+        y: 19.0,
+        w: 7.0,
+        h: 7.0,
+    },
+    Room {
+        name: "Server Room",
+        x: 27.0,
+        y: 15.0,
+        w: 5.0,
+        h: 11.0,
+    },
+    Room {
+        name: "Office South-East",
+        x: 32.0,
+        y: 15.0,
+        w: 10.0,
+        h: 11.0,
+    },
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -157,11 +223,20 @@ pub fn floor_plan(walls: &[Wall]) -> FloorPlan {
     svg.push_str("</svg>");
     let walls_px = walls
         .iter()
-        .map(|w| Wall { x1: px(w.x1), y1: px(w.y1), x2: px(w.x2), y2: px(w.y2), material: w.material })
+        .map(|w| Wall {
+            x1: px(w.x1),
+            y1: px(w.y1),
+            x2: px(w.x2),
+            y2: px(w.y2),
+            material: w.material,
+        })
         .collect();
     FloorPlan {
         name: "Demo office".into(),
-        image_data_url: format!("data:image/svg+xml;base64,{}", crate::util::base64(svg.as_bytes())),
+        image_data_url: format!(
+            "data:image/svg+xml;base64,{}",
+            crate::util::base64(svg.as_bytes())
+        ),
         width_px,
         height_px,
         meters_per_px: 1.0 / PX_PER_M,

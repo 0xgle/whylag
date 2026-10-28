@@ -10,17 +10,27 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PingResult {
-    Reply { rtt_ms: f64, from: Ipv4Addr },
+    Reply {
+        rtt_ms: f64,
+        from: Ipv4Addr,
+    },
     /// A router on the way answered "time to live exceeded" (traceroute hop).
-    TtlExceeded { rtt_ms: f64, from: Ipv4Addr },
-    Unreachable { from: Ipv4Addr },
+    TtlExceeded {
+        rtt_ms: f64,
+        from: Ipv4Addr,
+    },
+    Unreachable {
+        from: Ipv4Addr,
+    },
     Timeout,
 }
 
 impl PingResult {
     pub fn rtt(&self) -> Option<f64> {
         match self {
-            PingResult::Reply { rtt_ms, .. } | PingResult::TtlExceeded { rtt_ms, .. } => Some(*rtt_ms),
+            PingResult::Reply { rtt_ms, .. } | PingResult::TtlExceeded { rtt_ms, .. } => {
+                Some(*rtt_ms)
+            }
             _ => None,
         }
     }
@@ -33,7 +43,9 @@ pub fn ping(dest: Ipv4Addr, timeout: Duration, ttl: Option<u8>) -> PingResult {
 
 /// Async wrapper around [`ping`].
 pub async fn ping_async(dest: Ipv4Addr, timeout: Duration) -> PingResult {
-    tokio::task::spawn_blocking(move || ping(dest, timeout, None)).await.unwrap_or(PingResult::Timeout)
+    tokio::task::spawn_blocking(move || ping(dest, timeout, None))
+        .await
+        .unwrap_or(PingResult::Timeout)
 }
 
 /// True when this platform can trace routes natively (TTL-limited echo).
@@ -57,7 +69,13 @@ mod imp {
                 return PingResult::Timeout;
             }
             let payload = *b"WhyLag-probe-0123456789abcdefgh";
-            let options = IP_OPTION_INFORMATION { Ttl: ttl.unwrap_or(128), Tos: 0, Flags: 0, OptionsSize: 0, OptionsData: std::ptr::null_mut() };
+            let options = IP_OPTION_INFORMATION {
+                Ttl: ttl.unwrap_or(128),
+                Tos: 0,
+                Flags: 0,
+                OptionsSize: 0,
+                OptionsData: std::ptr::null_mut(),
+            };
             // Reply buffer: one ICMP_ECHO_REPLY + payload + 8 bytes for an ICMP error.
             let mut buf = vec![0u8; std::mem::size_of::<ICMP_ECHO_REPLY>() + payload.len() + 64];
             let addr = u32::from_ne_bytes(dest.octets());
@@ -78,12 +96,20 @@ mod imp {
             let from = Ipv4Addr::from(reply.Address.to_ne_bytes());
             // RoundTripTime has 1 ms resolution; measure ourselves for sub-ms LAN hops.
             let measured = started.elapsed().as_secs_f64() * 1000.0;
-            let rtt = if reply.RoundTripTime == 0 { measured.min(1.0) } else { (reply.RoundTripTime as f64).min(measured.max(reply.RoundTripTime as f64)) };
+            let rtt = if reply.RoundTripTime == 0 {
+                measured.min(1.0)
+            } else {
+                (reply.RoundTripTime as f64).min(measured.max(reply.RoundTripTime as f64))
+            };
             let status = if count > 0 { reply.Status } else { last_error };
             match status {
                 IP_SUCCESS if count > 0 => PingResult::Reply { rtt_ms: rtt, from },
-                IP_TTL_EXPIRED_TRANSIT if reply.Address != 0 => PingResult::TtlExceeded { rtt_ms: rtt, from },
-                IP_DEST_HOST_UNREACHABLE | IP_DEST_NET_UNREACHABLE if reply.Address != 0 => PingResult::Unreachable { from },
+                IP_TTL_EXPIRED_TRANSIT if reply.Address != 0 => {
+                    PingResult::TtlExceeded { rtt_ms: rtt, from }
+                }
+                IP_DEST_HOST_UNREACHABLE | IP_DEST_NET_UNREACHABLE if reply.Address != 0 => {
+                    PingResult::Unreachable { from }
+                }
                 _ => PingResult::Timeout,
             }
         }
@@ -104,7 +130,11 @@ mod imp {
     fn checksum(data: &[u8]) -> u16 {
         let mut sum = 0u32;
         for chunk in data.chunks(2) {
-            let word = if chunk.len() == 2 { u16::from_be_bytes([chunk[0], chunk[1]]) } else { u16::from_be_bytes([chunk[0], 0]) };
+            let word = if chunk.len() == 2 {
+                u16::from_be_bytes([chunk[0], chunk[1]])
+            } else {
+                u16::from_be_bytes([chunk[0], 0])
+            };
             sum += word as u32;
         }
         while sum >> 16 != 0 {
@@ -136,12 +166,20 @@ mod imp {
             sock.set_read_timeout(Some(left)).ok()?;
             let (n, from) = match sock.recv_from(&mut buf) {
                 Ok(r) => r,
-                Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
                     return Some(PingResult::Timeout)
                 }
                 Err(_) => return Some(PingResult::Timeout),
             };
-            let data: Vec<u8> = buf[..n].iter().map(|b| unsafe { b.assume_init() }).collect();
+            let data: Vec<u8> = buf[..n]
+                .iter()
+                .map(|b| unsafe { b.assume_init() })
+                .collect();
             // macOS includes the IP header on datagram ICMP sockets; Linux does not.
             let icmp = if !data.is_empty() && data[0] >> 4 == 4 && data.len() >= 20 {
                 let ihl = ((data[0] & 0x0f) as usize) * 4;
@@ -155,7 +193,10 @@ mod imp {
             let reply_seq = u16::from_be_bytes([icmp[6], icmp[7]]);
             let from_ip = from.as_socket_ipv4().map(|a| *a.ip()).unwrap_or(dest);
             if icmp[0] == 0 && reply_seq == seq {
-                return Some(PingResult::Reply { rtt_ms: started.elapsed().as_secs_f64() * 1000.0, from: from_ip });
+                return Some(PingResult::Reply {
+                    rtt_ms: started.elapsed().as_secs_f64() * 1000.0,
+                    from: from_ip,
+                });
             }
         }
     }
@@ -163,27 +204,47 @@ mod imp {
     fn tool_ping(dest: Ipv4Addr, timeout: Duration) -> PingResult {
         let secs = timeout.as_secs().max(1).to_string();
         let ip = dest.to_string();
-        let args: Vec<&str> = if cfg!(target_os = "macos") { vec!["-c", "1", "-t", &secs, &ip] } else { vec!["-c", "1", "-W", &secs, &ip] };
-        let out = crate::util::run_tool_lenient("ping", &args, timeout + Duration::from_millis(800)).unwrap_or_default();
-        parse_ping_time(&out).map(|rtt_ms| PingResult::Reply { rtt_ms, from: dest }).unwrap_or(PingResult::Timeout)
+        let args: Vec<&str> = if cfg!(target_os = "macos") {
+            vec!["-c", "1", "-t", &secs, &ip]
+        } else {
+            vec!["-c", "1", "-W", &secs, &ip]
+        };
+        let out =
+            crate::util::run_tool_lenient("ping", &args, timeout + Duration::from_millis(800))
+                .unwrap_or_default();
+        parse_ping_time(&out)
+            .map(|rtt_ms| PingResult::Reply { rtt_ms, from: dest })
+            .unwrap_or(PingResult::Timeout)
     }
 
     pub(crate) fn parse_ping_time(out: &str) -> Option<f64> {
         let idx = out.find("time=").or_else(|| out.find("time<"))?;
         let rest = &out[idx + 5..];
-        let num: String = rest.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+        let num: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_digit() || *c == '.')
+            .collect();
         num.parse().ok()
     }
 
     pub fn ping(dest: Ipv4Addr, timeout: Duration, ttl: Option<u8>) -> PingResult {
-        socket_ping(dest, timeout, ttl).unwrap_or_else(|| if ttl.is_some() { PingResult::Timeout } else { tool_ping(dest, timeout) })
+        socket_ping(dest, timeout, ttl).unwrap_or_else(|| {
+            if ttl.is_some() {
+                PingResult::Timeout
+            } else {
+                tool_ping(dest, timeout)
+            }
+        })
     }
 
     #[cfg(test)]
     mod tests {
         #[test]
         fn parses_ping_output() {
-            assert_eq!(super::parse_ping_time("64 bytes from 1.1.1.1: icmp_seq=1 ttl=57 time=12.4 ms"), Some(12.4));
+            assert_eq!(
+                super::parse_ping_time("64 bytes from 1.1.1.1: icmp_seq=1 ttl=57 time=12.4 ms"),
+                Some(12.4)
+            );
             assert_eq!(super::parse_ping_time("Request timeout"), None);
         }
     }

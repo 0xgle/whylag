@@ -174,7 +174,11 @@ pub const PORTS: &[(u16, &str)] = &[
 const SWEEP_PORTS: &[u16] = &[80, 443, 445, 22, 62078, 554, 8080, 9100];
 
 pub fn port_name(port: u16) -> &'static str {
-    PORTS.iter().find(|(p, _)| *p == port).map(|(_, n)| *n).unwrap_or("tcp")
+    PORTS
+        .iter()
+        .find(|(p, _)| *p == port)
+        .map(|(_, n)| *n)
+        .unwrap_or("tcp")
 }
 
 /// Shared handle used to report progress and stop a running scan.
@@ -184,7 +188,9 @@ pub struct DiscoveryHandle {
 
 impl Default for DiscoveryHandle {
     fn default() -> Self {
-        Self { cancel: AtomicBool::new(false) }
+        Self {
+            cancel: AtomicBool::new(false),
+        }
     }
 }
 
@@ -199,13 +205,22 @@ pub fn start(state: Arc<AppState>) -> DiscoveryRun {
         if run.running {
             return run.clone();
         }
-        *run = DiscoveryRun { running: true, phase: "starting".into(), started_ms: now_ms(), ..Default::default() };
+        *run = DiscoveryRun {
+            running: true,
+            phase: "starting".into(),
+            started_ms: now_ms(),
+            ..Default::default()
+        };
     }
     state.discovery_handle.cancel.store(false, Ordering::SeqCst);
     let simulate = state.use_simulator();
     let st = state.clone();
     tokio::spawn(async move {
-        let result = if simulate { crate::sim::lan::discover(st.clone()).await } else { discover(st.clone()).await };
+        let result = if simulate {
+            crate::util::catch_job(crate::sim::lan::discover(st.clone())).await
+        } else {
+            crate::util::catch_job(discover(st.clone())).await
+        };
         let mut run = st.discovery.lock();
         if let Err(e) = result {
             run.error = Some(e);
@@ -229,22 +244,36 @@ fn cancelled(state: &AppState) -> bool {
 async fn probe_alive(ip: Ipv4Addr) -> Option<f64> {
     let timeout = Duration::from_millis(700);
     let icmp = tokio::task::spawn_blocking(move || net::icmp::ping(ip, timeout, None));
-    let tcp = futures_util::future::join_all(SWEEP_PORTS.iter().map(|p| net::tcp_probe(SocketAddr::new(IpAddr::V4(ip), *p), timeout)));
+    let tcp = futures_util::future::join_all(
+        SWEEP_PORTS
+            .iter()
+            .map(|p| net::tcp_probe(SocketAddr::new(IpAddr::V4(ip), *p), timeout)),
+    );
     let (icmp, tcp) = tokio::join!(icmp, tcp);
     if let Ok(r) = icmp {
         if let Some(rtt) = r.rtt() {
             return Some(rtt);
         }
     }
-    tcp.into_iter().filter(|(o, _)| matches!(o, TcpOutcome::Open | TcpOutcome::Closed)).filter_map(|(_, rtt)| rtt).reduce(f64::min)
+    tcp.into_iter()
+        .filter(|(o, _)| matches!(o, TcpOutcome::Open | TcpOutcome::Closed))
+        .filter_map(|(_, rtt)| rtt)
+        .reduce(f64::min)
 }
 
 async fn scan_ports(ip: Ipv4Addr) -> Vec<OpenPort> {
     let results = stream::iter(PORTS.iter().map(|(p, _)| *p).collect::<Vec<u16>>())
         .map(move |port: u16| -> BoxFuture<'static, Option<OpenPort>> {
             async move {
-                let (o, _) = net::tcp_probe(SocketAddr::new(IpAddr::V4(ip), port), Duration::from_millis(500)).await;
-                (o == TcpOutcome::Open).then_some(OpenPort { port, service: port_name(port) })
+                let (o, _) = net::tcp_probe(
+                    SocketAddr::new(IpAddr::V4(ip), port),
+                    Duration::from_millis(500),
+                )
+                .await;
+                (o == TcpOutcome::Open).then_some(OpenPort {
+                    port,
+                    service: port_name(port),
+                })
             }
             .boxed()
         })
@@ -257,24 +286,48 @@ async fn scan_ports(ip: Ipv4Addr) -> Vec<OpenPort> {
 }
 
 fn extract_title(html: &str) -> Option<String> {
-    let lower = html.to_lowercase();
+    // ASCII lowercasing keeps byte offsets identical to `html`.
+    let lower = html.to_ascii_lowercase();
     let start = lower.find("<title")?;
     let open_end = lower[start..].find('>')? + start + 1;
     let end = lower[open_end..].find("</title>")? + open_end;
-    let title = html[open_end..end].split_whitespace().collect::<Vec<_>>().join(" ");
+    let title = html[open_end..end]
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     (!title.is_empty()).then(|| title.chars().take(80).collect())
 }
 
-async fn http_banner(client: &reqwest::Client, ip: Ipv4Addr, ports: &[OpenPort]) -> (Option<String>, Option<String>) {
-    for (port, https) in [(80, false), (443, true), (8080, false), (8443, true), (5000, false), (8000, false)] {
+async fn http_banner(
+    client: &reqwest::Client,
+    ip: Ipv4Addr,
+    ports: &[OpenPort],
+) -> (Option<String>, Option<String>) {
+    for (port, https) in [
+        (80, false),
+        (443, true),
+        (8080, false),
+        (8443, true),
+        (5000, false),
+        (8000, false),
+    ] {
         if !ports.iter().any(|p| p.port == port) {
             continue;
         }
-        let url = format!("{}://{}:{}/", if https { "https" } else { "http" }, ip, port);
+        let url = format!(
+            "{}://{}:{}/",
+            if https { "https" } else { "http" },
+            ip,
+            port
+        );
         if let Ok(resp) = client.get(&url).send().await {
-            let server = resp.headers().get("server").and_then(|v| v.to_str().ok()).map(str::to_string);
-            let body = resp.text().await.unwrap_or_default();
-            let title = extract_title(&body[..body.len().min(64 * 1024)]);
+            let server = resp
+                .headers()
+                .get("server")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_string);
+            let body = crate::util::read_capped(resp, 64 * 1024).await;
+            let title = extract_title(&body);
             if title.is_some() || server.is_some() {
                 return (title, server);
             }
@@ -293,7 +346,9 @@ struct MdnsInfo {
 fn browse_mdns(window: Duration) -> HashMap<Ipv4Addr, MdnsInfo> {
     use mdns_sd::{ServiceDaemon, ServiceEvent};
     let mut out: HashMap<Ipv4Addr, MdnsInfo> = HashMap::new();
-    let Ok(daemon) = ServiceDaemon::new() else { return out };
+    let Ok(daemon) = ServiceDaemon::new() else {
+        return out;
+    };
     let deadline = std::time::Instant::now() + window;
     let mut types: Vec<String> = Vec::new();
     if let Ok(rx) = daemon.browse("_services._dns-sd._udp.local.") {
@@ -313,29 +368,61 @@ fn browse_mdns(window: Duration) -> HashMap<Ipv4Addr, MdnsInfo> {
         let _ = daemon.stop_browse("_services._dns-sd._udp.local.");
     }
     // Always look for the common ones even if the enumeration is not answered.
-    for t in ["_http._tcp.local.", "_ipp._tcp.local.", "_printer._tcp.local.", "_airplay._tcp.local.", "_googlecast._tcp.local.", "_smb._tcp.local.", "_device-info._tcp.local.", "_hap._tcp.local.", "_raop._tcp.local.", "_spotify-connect._tcp.local.", "_workstation._tcp.local.", "_companion-link._tcp.local."] {
+    for t in [
+        "_http._tcp.local.",
+        "_ipp._tcp.local.",
+        "_printer._tcp.local.",
+        "_airplay._tcp.local.",
+        "_googlecast._tcp.local.",
+        "_smb._tcp.local.",
+        "_device-info._tcp.local.",
+        "_hap._tcp.local.",
+        "_raop._tcp.local.",
+        "_spotify-connect._tcp.local.",
+        "_workstation._tcp.local.",
+        "_companion-link._tcp.local.",
+    ] {
         if !types.iter().any(|x| x == t) {
             types.push(t.to_string());
         }
     }
-    let receivers: Vec<(String, mdns_sd::Receiver<ServiceEvent>)> = types.iter().filter_map(|t| daemon.browse(t).ok().map(|r| (t.clone(), r))).collect();
+    let receivers: Vec<(String, mdns_sd::Receiver<ServiceEvent>)> = types
+        .iter()
+        .filter_map(|t| daemon.browse(t).ok().map(|r| (t.clone(), r)))
+        .collect();
     while std::time::Instant::now() < deadline {
         let mut idle = true;
         for (ty, rx) in &receivers {
             while let Ok(ev) = rx.try_recv() {
                 idle = false;
                 if let ServiceEvent::ServiceResolved(info) = ev {
-                    let instance = info.fullname.trim_end_matches(&format!(".{}", ty.trim_end_matches('.'))).trim_end_matches('.').to_string();
-                    let model = info.get_property_val_str("md").or(info.get_property_val_str("model")).or(info.get_property_val_str("ty")).or(info.get_property_val_str("am")).map(str::to_string);
+                    let instance = info
+                        .fullname
+                        .trim_end_matches(&format!(".{}", ty.trim_end_matches('.')))
+                        .trim_end_matches('.')
+                        .to_string();
+                    let model = info
+                        .get_property_val_str("md")
+                        .or(info.get_property_val_str("model"))
+                        .or(info.get_property_val_str("ty"))
+                        .or(info.get_property_val_str("am"))
+                        .map(str::to_string);
                     let friendly = info.get_property_val_str("fn").map(str::to_string);
                     for addr in info.get_addresses() {
                         if let IpAddr::V4(v4) = addr.to_ip_addr() {
-                            let e = out.entry(v4).or_insert(MdnsInfo { services: vec![], names: vec![], model: None });
+                            let e = out.entry(v4).or_insert(MdnsInfo {
+                                services: vec![],
+                                names: vec![],
+                                model: None,
+                            });
                             let short = ty.trim_end_matches(".local.").to_string();
                             if !e.services.contains(&short) {
                                 e.services.push(short);
                             }
-                            for n in [friendly.clone(), Some(instance.clone())].into_iter().flatten() {
+                            for n in [friendly.clone(), Some(instance.clone())]
+                                .into_iter()
+                                .flatten()
+                            {
                                 if !n.is_empty() && !e.names.contains(&n) {
                                     e.names.push(n);
                                 }
@@ -357,9 +444,14 @@ fn browse_mdns(window: Duration) -> HashMap<Ipv4Addr, MdnsInfo> {
 }
 
 /// SSDP/UPnP: device descriptions by IP (friendly name, manufacturer, model, type).
-async fn ssdp(client: &reqwest::Client, window: Duration) -> HashMap<Ipv4Addr, (Option<String>, Option<String>, Option<String>)> {
+async fn ssdp(
+    client: &reqwest::Client,
+    window: Duration,
+) -> HashMap<Ipv4Addr, (Option<String>, Option<String>, Option<String>)> {
     let mut out = HashMap::new();
-    let Ok(sock) = tokio::net::UdpSocket::bind("0.0.0.0:0").await else { return out };
+    let Ok(sock) = tokio::net::UdpSocket::bind("0.0.0.0:0").await else {
+        return out;
+    };
     let msg = "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\nST: ssdp:all\r\n\r\n";
     for _ in 0..2 {
         let _ = sock.send_to(msg.as_bytes(), "239.255.255.250:1900").await;
@@ -367,9 +459,17 @@ async fn ssdp(client: &reqwest::Client, window: Duration) -> HashMap<Ipv4Addr, (
     let mut locations: HashMap<Ipv4Addr, String> = HashMap::new();
     let deadline = tokio::time::Instant::now() + window;
     let mut buf = [0u8; 2048];
-    while let Ok(Ok((n, from))) = tokio::time::timeout_at(deadline, sock.recv_from(&mut buf)).await {
+    while let Ok(Ok((n, from))) = tokio::time::timeout_at(deadline, sock.recv_from(&mut buf)).await
+    {
         let text = String::from_utf8_lossy(&buf[..n]);
-        if let (IpAddr::V4(ip), Some(loc)) = (from.ip(), text.lines().find_map(|l| l.split_once(':').filter(|(k, _)| k.eq_ignore_ascii_case("location")).map(|(_, v)| v.trim().to_string()))) {
+        if let (IpAddr::V4(ip), Some(loc)) = (
+            from.ip(),
+            text.lines().find_map(|l| {
+                l.split_once(':')
+                    .filter(|(k, _)| k.eq_ignore_ascii_case("location"))
+                    .map(|(_, v)| v.trim().to_string())
+            }),
+        ) {
             locations.entry(ip).or_insert(loc);
         }
     }
@@ -389,12 +489,15 @@ async fn ssdp(client: &reqwest::Client, window: Duration) -> HashMap<Ipv4Addr, (
             if let Ok(xml) = resp.text().await {
                 let friendly = tag(&xml, "friendlyName");
                 let model = match (tag(&xml, "manufacturer"), tag(&xml, "modelName")) {
-                    (Some(m), Some(n)) if !n.to_lowercase().contains(&m.to_lowercase()) => Some(format!("{m} {n}")),
+                    (Some(m), Some(n)) if !n.to_lowercase().contains(&m.to_lowercase()) => {
+                        Some(format!("{m} {n}"))
+                    }
                     (_, Some(n)) => Some(n),
                     (Some(m), None) => Some(m),
                     _ => None,
                 };
-                let ty = tag(&xml, "deviceType").map(|t| t.split(':').nth(3).unwrap_or(&t).to_string());
+                let ty =
+                    tag(&xml, "deviceType").map(|t| t.split(':').nth(3).unwrap_or(&t).to_string());
                 out.insert(ip, (friendly, model, ty));
             }
         }
@@ -413,70 +516,249 @@ pub fn classify(h: &mut Host) {
     let vendor = h.vendor.clone().unwrap_or_default().to_lowercase();
     let has = |p: u16| h.ports.iter().any(|x| x.port == p);
     let svc = |s: &str| h.mdns_services.iter().any(|x| x.contains(s));
-    let text = [h.http_title.clone(), h.http_server.clone(), h.snmp_descr.clone(), h.model.clone(), h.upnp_type.clone(), h.name.clone()]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_lowercase();
+    let text = [
+        h.http_title.clone(),
+        h.http_server.clone(),
+        h.snmp_descr.clone(),
+        h.model.clone(),
+        h.upnp_type.clone(),
+        h.name.clone(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" ")
+    .to_lowercase();
     let mut ev: Vec<String> = Vec::new();
     let any = |words: &[&str], t: &str| words.iter().any(|w| t.contains(w));
     // Whole-word vendor match ("LG" must not match "Logitech").
-    let vendor_word = |words: &[&str]| words.iter().any(|w| vendor == *w || vendor.starts_with(&format!("{w} ")));
+    let vendor_word = |words: &[&str]| {
+        words
+            .iter()
+            .any(|w| vendor == *w || vendor.starts_with(&format!("{w} ")))
+    };
 
     let kind = if h.is_self {
         ev.push("self".into());
         DeviceKind::Computer
     } else if h.is_gateway {
         ev.push("gateway".into());
-        if any(&["fortigate", "fortinet", "pfsense", "opnsense", "sophos", "watchguard", "sonicwall"], &(vendor.clone() + " " + &text)) {
+        if any(
+            &[
+                "fortigate",
+                "fortinet",
+                "pfsense",
+                "opnsense",
+                "sophos",
+                "watchguard",
+                "sonicwall",
+            ],
+            &(vendor.clone() + " " + &text),
+        ) {
             DeviceKind::Firewall
         } else {
             DeviceKind::Router
         }
-    } else if has(554) || any(&["hikvision", "dahua", "ezviz", "reolink", "axis comm", "amcrest", "uniview", "foscam"], &vendor) || any(&["ipcam", "nvr", "dvr", "camera", "onvif"], &text) {
+    } else if has(554)
+        || any(
+            &[
+                "hikvision",
+                "dahua",
+                "ezviz",
+                "reolink",
+                "axis comm",
+                "amcrest",
+                "uniview",
+                "foscam",
+            ],
+            &vendor,
+        )
+        || any(&["ipcam", "nvr", "dvr", "camera", "onvif"], &text)
+    {
         ev.push(if has(554) { "rtsp" } else { "cameraVendor" }.into());
         DeviceKind::Camera
-    } else if has(9100) || has(631) || has(515) || svc("_ipp") || svc("_printer") || any(&["printer", "laserjet", "officejet", "deskjet", "mfc-", "ecosys", "imagerunner"], &text) {
+    } else if has(9100)
+        || has(631)
+        || has(515)
+        || svc("_ipp")
+        || svc("_printer")
+        || any(
+            &[
+                "printer",
+                "laserjet",
+                "officejet",
+                "deskjet",
+                "mfc-",
+                "ecosys",
+                "imagerunner",
+            ],
+            &text,
+        )
+    {
         ev.push("printing".into());
         DeviceKind::Printer
-    } else if any(&["synology", "qnap", "western digital", "asustor", "terramaster", "netgear readynas"], &vendor) || any(&["diskstation", "nas"], &text) {
+    } else if any(
+        &[
+            "synology",
+            "qnap",
+            "western digital",
+            "asustor",
+            "terramaster",
+            "netgear readynas",
+        ],
+        &vendor,
+    ) || any(&["diskstation", "nas"], &text)
+    {
         ev.push("nasVendor".into());
         DeviceKind::Nas
-    } else if any(&["switch", "procurve", "catalyst", "aruba os", "edgeswitch", "usw-"], &text) || (h.snmp_name.is_some() && any(&["cisco", "hewlett packard enterprise", "aruba", "netgear", "d-link", "zyxel"], &vendor) && !has(80)) {
+    } else if any(
+        &[
+            "switch",
+            "procurve",
+            "catalyst",
+            "aruba os",
+            "edgeswitch",
+            "usw-",
+        ],
+        &text,
+    ) || (h.snmp_name.is_some()
+        && any(
+            &[
+                "cisco",
+                "hewlett packard enterprise",
+                "aruba",
+                "netgear",
+                "d-link",
+                "zyxel",
+            ],
+            &vendor,
+        )
+        && !has(80))
+    {
         ev.push("switch".into());
         DeviceKind::Switch
-    } else if any(&["ubiquiti", "ruckus", "aruba", "meraki", "cambium", "engenius", "mist"], &vendor) || any(&["unifi ap", "access point", "uap-", "u6-", "u7-"], &text) {
+    } else if any(
+        &[
+            "ubiquiti", "ruckus", "aruba", "meraki", "cambium", "engenius", "mist",
+        ],
+        &vendor,
+    ) || any(&["unifi ap", "access point", "uap-", "u6-", "u7-"], &text)
+    {
         ev.push("apVendor".into());
         DeviceKind::AccessPoint
-    } else if any(&["mikrotik", "routerboard", "tp-link", "netgear", "asus", "zyxel", "draytek", "avm", "sagemcom", "technicolor", "huawei"], &vendor) && (has(80) || has(443) || has(8291) || has(53)) {
+    } else if any(
+        &[
+            "mikrotik",
+            "routerboard",
+            "tp-link",
+            "netgear",
+            "asus",
+            "zyxel",
+            "draytek",
+            "avm",
+            "sagemcom",
+            "technicolor",
+            "huawei",
+        ],
+        &vendor,
+    ) && (has(80) || has(443) || has(8291) || has(53))
+    {
         ev.push("routerVendor".into());
         DeviceKind::Router
-    } else if has(5060) || any(&["yealink", "polycom", "grandstream", "snom", "fanvil"], &vendor) {
+    } else if has(5060)
+        || any(
+            &["yealink", "polycom", "grandstream", "snom", "fanvil"],
+            &vendor,
+        )
+    {
         ev.push("sip".into());
         DeviceKind::Voip
-    } else if any(&["sonos", "bose", "harman"], &vendor) || has(1400) || svc("_spotify-connect") && !svc("_googlecast") {
+    } else if any(&["sonos", "bose", "harman"], &vendor)
+        || has(1400)
+        || svc("_spotify-connect") && !svc("_googlecast")
+    {
         ev.push("speaker".into());
         DeviceKind::Speaker
-    } else if svc("_googlecast") || has(8008) || any(&["roku", "chromecast", "apple tv", "fire tv", "nvidia shield"], &(vendor.clone() + " " + &text)) {
+    } else if svc("_googlecast")
+        || has(8008)
+        || any(
+            &["roku", "chromecast", "apple tv", "fire tv", "nvidia shield"],
+            &(vendor.clone() + " " + &text),
+        )
+    {
         ev.push("cast".into());
         DeviceKind::MediaPlayer
-    } else if vendor_word(&["lg", "samsung", "tcl", "hisense", "vizio", "philips", "sony"]) && (svc("_airplay") || has(7000) || has(3000) || any(&["tv", "webos", "tizen"], &text)) || any(&["smart tv", "bravia", "webos"], &text) {
+    } else if vendor_word(&[
+        "lg", "samsung", "tcl", "hisense", "vizio", "philips", "sony",
+    ]) && (svc("_airplay")
+        || has(7000)
+        || has(3000)
+        || any(&["tv", "webos", "tizen"], &text))
+        || any(&["smart tv", "bravia", "webos"], &text)
+    {
         ev.push("tv".into());
         DeviceKind::Tv
-    } else if any(&["nintendo", "sony interactive", "sony computer entertainment", "microsoft xbox"], &vendor) {
+    } else if any(
+        &[
+            "nintendo",
+            "sony interactive",
+            "sony computer entertainment",
+            "microsoft xbox",
+        ],
+        &vendor,
+    ) {
         ev.push("console".into());
         DeviceKind::GameConsole
     } else if has(62078) || svc("_companion-link") && !has(445) {
         ev.push("appleMobile".into());
         DeviceKind::Phone
-    } else if any(&["espressif", "tuya", "shelly", "allterco", "sonoff", "itead", "xiaomi", "philips lighting", "signify", "ecobee", "tado"], &vendor) || vendor_word(&["ring", "nest"]) || svc("_hap") || has(1883) {
+    } else if any(
+        &[
+            "espressif",
+            "tuya",
+            "shelly",
+            "allterco",
+            "sonoff",
+            "itead",
+            "xiaomi",
+            "philips lighting",
+            "signify",
+            "ecobee",
+            "tado",
+        ],
+        &vendor,
+    ) || vendor_word(&["ring", "nest"])
+        || svc("_hap")
+        || has(1883)
+    {
         ev.push("iot".into());
         DeviceKind::Iot
-    } else if has(3389) || has(445) || has(135) || has(139) || svc("_smb") || svc("_workstation") || any(&["windows", "macbook", "imac"], &text) || any(&["intel corporate", "dell", "lenovo", "hewlett packard", "micro-star", "asustek", "gigabyte", "apple"], &vendor) && !h.random_mac {
+    } else if has(3389)
+        || has(445)
+        || has(135)
+        || has(139)
+        || svc("_smb")
+        || svc("_workstation")
+        || any(&["windows", "macbook", "imac"], &text)
+        || any(
+            &[
+                "intel corporate",
+                "dell",
+                "lenovo",
+                "hewlett packard",
+                "micro-star",
+                "asustek",
+                "gigabyte",
+                "apple",
+            ],
+            &vendor,
+        ) && !h.random_mac
+    {
         ev.push("computer".into());
         DeviceKind::Computer
-    } else if has(22) && (has(80) || has(443) || has(3306) || has(2049)) || any(&["raspberry"], &vendor) {
+    } else if has(22) && (has(80) || has(443) || has(3306) || has(2049))
+        || any(&["raspberry"], &vendor)
+    {
         ev.push("server".into());
         DeviceKind::Server
     } else if h.random_mac && h.ports.is_empty() {
@@ -490,7 +772,9 @@ pub fn classify(h: &mut Host) {
             Some("Windows".into())
         } else if has(62078) {
             Some("iOS".into())
-        } else if svc("_companion-link") || vendor.contains("apple") && (svc("_airplay") || svc("_smb")) {
+        } else if svc("_companion-link")
+            || vendor.contains("apple") && (svc("_airplay") || svc("_smb"))
+        {
             Some("Apple".into())
         } else if text.contains("linux") || text.contains("ubuntu") || text.contains("debian") {
             Some("Linux".into())
@@ -507,7 +791,12 @@ fn pick_name(h: &mut Host) {
     let order = ["mdns", "upnp", "netbios", "snmp", "dns"];
     for src in order {
         if let Some((_, n)) = h.names.iter().find(|(s, _)| s == src) {
-            let clean = n.trim_end_matches(".local").trim_end_matches(".lan").trim_end_matches(".home").trim_end_matches(".localdomain").to_string();
+            let clean = n
+                .trim_end_matches(".local")
+                .trim_end_matches(".lan")
+                .trim_end_matches(".home")
+                .trim_end_matches(".localdomain")
+                .to_string();
             h.name = Some(clean);
             return;
         }
@@ -516,7 +805,11 @@ fn pick_name(h: &mut Host) {
 
 async fn discover(state: Arc<AppState>) -> Result<(), String> {
     let state = &state;
-    let local = tokio::task::spawn_blocking(net::local_net).await.ok().flatten().ok_or_else(|| "noNetwork".to_string())?;
+    let local = tokio::task::spawn_blocking(net::local_net)
+        .await
+        .ok()
+        .flatten()
+        .ok_or_else(|| "noNetwork".to_string())?;
     let range = local.scan_range();
     if range.is_empty() {
         return Err("noIpv4".into());
@@ -573,21 +866,47 @@ async fn discover(state: Arc<AppState>) -> Result<(), String> {
     }
 
     // 2. ARP cache: includes devices that ignored our probes.
-    let arp = tokio::task::spawn_blocking(net::arp::table).await.unwrap_or_default();
+    let arp = tokio::task::spawn_blocking(net::arp::table)
+        .await
+        .unwrap_or_default();
     let mut hosts: BTreeMap<Ipv4Addr, Host> = BTreeMap::new();
     for (ip, rtt) in &alive {
-        hosts.insert(*ip, Host { ip: *ip, rtt_ms: Some(*rtt), ..Default::default() });
+        hosts.insert(
+            *ip,
+            Host {
+                ip: *ip,
+                rtt_ms: Some(*rtt),
+                ..Default::default()
+            },
+        );
     }
     for (ip, mac) in &arp {
         if range.contains(ip) {
-            hosts.entry(*ip).or_insert(Host { ip: *ip, ..Default::default() }).mac = Some(mac.clone());
+            hosts
+                .entry(*ip)
+                .or_insert(Host {
+                    ip: *ip,
+                    ..Default::default()
+                })
+                .mac = Some(mac.clone());
         }
     }
     if let Some(me) = local.ipv4 {
-        hosts.insert(me, Host { ip: me, mac: local.mac.clone(), is_self: true, ..Default::default() });
+        hosts.insert(
+            me,
+            Host {
+                ip: me,
+                mac: local.mac.clone(),
+                is_self: true,
+                ..Default::default()
+            },
+        );
     }
     if let Some(gw) = local.gateway {
-        let h = hosts.entry(gw).or_insert(Host { ip: gw, ..Default::default() });
+        let h = hosts.entry(gw).or_insert(Host {
+            ip: gw,
+            ..Default::default()
+        });
         h.is_gateway = true;
         if h.mac.is_none() {
             h.mac = local.gateway_mac.clone();
@@ -606,7 +925,8 @@ async fn discover(state: Arc<AppState>) -> Result<(), String> {
     // 4. Enrich hosts.
     let total = hosts.len().max(1);
     let done = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let (e_client, e_community, e_done, e_st) = (client.clone(), community.clone(), done.clone(), st.clone());
+    let (e_client, e_community, e_done, e_st) =
+        (client.clone(), community.clone(), done.clone(), st.clone());
     let enriched: Vec<Host> = stream::iter(hosts.into_values())
         .map(move |mut h| -> BoxFuture<'static, Host> {
             let client = e_client.clone();
@@ -620,7 +940,12 @@ async fn discover(state: Arc<AppState>) -> Result<(), String> {
                         net::reverse_dns(ip, Duration::from_millis(1500)),
                         net::netbios::query(ip, Duration::from_millis(800)),
                         scan_ports(h.ip),
-                        snmp::get(ip, &community, &[snmp::SYS_NAME, snmp::SYS_DESCR], Duration::from_millis(800)),
+                        snmp::get(
+                            ip,
+                            &community,
+                            &[snmp::SYS_NAME, snmp::SYS_DESCR],
+                            Duration::from_millis(800)
+                        ),
                     );
                     if let Some(n) = dns {
                         h.names.push(("dns".into(), n));
@@ -632,8 +957,14 @@ async fn discover(state: Arc<AppState>) -> Result<(), String> {
                     }
                     h.ports = ports;
                     if let Some(vbs) = snmp_r {
-                        h.snmp_name = vbs.first().and_then(|(_, v)| v.as_text()).filter(|s| !s.is_empty());
-                        h.snmp_descr = vbs.get(1).and_then(|(_, v)| v.as_text()).filter(|s| !s.is_empty());
+                        h.snmp_name = vbs
+                            .first()
+                            .and_then(|(_, v)| v.as_text())
+                            .filter(|s| !s.is_empty());
+                        h.snmp_descr = vbs
+                            .get(1)
+                            .and_then(|(_, v)| v.as_text())
+                            .filter(|s| !s.is_empty());
                         if let Some(n) = &h.snmp_name {
                             h.names.push(("snmp".into(), n.clone()));
                         }
@@ -643,7 +974,9 @@ async fn discover(state: Arc<AppState>) -> Result<(), String> {
                     h.http_server = server;
                 }
                 let n = done.fetch_add(1, Ordering::Relaxed) + 1;
-                update(&st, |run| run.progress = 0.5 + 0.45 * n as f64 / total as f64);
+                update(&st, |run| {
+                    run.progress = 0.5 + 0.45 * n as f64 / total as f64
+                });
                 h
             }
             .boxed()
@@ -687,22 +1020,69 @@ async fn discover(state: Arc<AppState>) -> Result<(), String> {
         r.hosts = hosts.clone();
     });
     let mut links = Vec::new();
-    let snmp_hosts: Vec<Ipv4Addr> = hosts.iter().filter(|h| h.snmp_name.is_some()).map(|h| h.ip).collect();
+    let snmp_hosts: Vec<Ipv4Addr> = hosts
+        .iter()
+        .filter(|h| h.snmp_name.is_some())
+        .map(|h| h.ip)
+        .collect();
     for host_ip in snmp_hosts {
         let ip = IpAddr::V4(host_ip);
-        let names = snmp::walk(ip, &community, snmp::LLDP_REM_SYS_NAME, 128, Duration::from_millis(800)).await;
-        let ports = snmp::walk(ip, &community, snmp::LLDP_REM_PORT_ID, 128, Duration::from_millis(800)).await;
-        let locals = snmp::walk(ip, &community, snmp::LLDP_LOC_PORT_DESC, 128, Duration::from_millis(800)).await;
+        let names = snmp::walk(
+            ip,
+            &community,
+            snmp::LLDP_REM_SYS_NAME,
+            128,
+            Duration::from_millis(800),
+        )
+        .await;
+        let ports = snmp::walk(
+            ip,
+            &community,
+            snmp::LLDP_REM_PORT_ID,
+            128,
+            Duration::from_millis(800),
+        )
+        .await;
+        let locals = snmp::walk(
+            ip,
+            &community,
+            snmp::LLDP_LOC_PORT_DESC,
+            128,
+            Duration::from_millis(800),
+        )
+        .await;
         let root_len = snmp::parse_oid(snmp::LLDP_REM_SYS_NAME).len();
         for (oid, value) in names {
             // Index: timeMark.localPortNum.remIndex
             let index = &oid[root_len..];
             let local_port_num = index.get(1).copied();
-            let remote_port = ports.iter().find(|(o, _)| o.ends_with(index)).and_then(|(_, v)| v.as_text());
-            let local_port = local_port_num.and_then(|n| locals.iter().find(|(o, _)| o.last() == Some(&n)).and_then(|(_, v)| v.as_text())).or(local_port_num.map(|n| format!("port {n}")));
+            let remote_port = ports
+                .iter()
+                .find(|(o, _)| o.ends_with(index))
+                .and_then(|(_, v)| v.as_text());
+            let local_port = local_port_num
+                .and_then(|n| {
+                    locals
+                        .iter()
+                        .find(|(o, _)| o.last() == Some(&n))
+                        .and_then(|(_, v)| v.as_text())
+                })
+                .or(local_port_num.map(|n| format!("port {n}")));
             if let Some(neighbor) = value.as_text().filter(|s| !s.is_empty()) {
-                let neighbor_ip = hosts.iter().find(|x| x.snmp_name.as_deref() == Some(&neighbor) || x.name.as_deref() == Some(&neighbor)).map(|x| x.ip);
-                links.push(Link { from: host_ip, local_port, neighbor, neighbor_ip, remote_port });
+                let neighbor_ip = hosts
+                    .iter()
+                    .find(|x| {
+                        x.snmp_name.as_deref() == Some(&neighbor)
+                            || x.name.as_deref() == Some(&neighbor)
+                    })
+                    .map(|x| x.ip);
+                links.push(Link {
+                    from: host_ip,
+                    local_port,
+                    neighbor,
+                    neighbor_ip,
+                    remote_port,
+                });
             }
         }
     }
@@ -718,7 +1098,17 @@ mod tests {
     use super::*;
 
     fn host(vendor: &str, ports: &[u16]) -> Host {
-        Host { vendor: Some(vendor.into()), ports: ports.iter().map(|p| OpenPort { port: *p, service: port_name(*p) }).collect(), ..Default::default() }
+        Host {
+            vendor: Some(vendor.into()),
+            ports: ports
+                .iter()
+                .map(|p| OpenPort {
+                    port: *p,
+                    service: port_name(*p),
+                })
+                .collect(),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -743,7 +1133,10 @@ mod tests {
         let mut h = host("Espressif", &[80]);
         classify(&mut h);
         assert_eq!(h.kind, DeviceKind::Iot);
-        let mut h = Host { random_mac: true, ..Default::default() };
+        let mut h = Host {
+            random_mac: true,
+            ..Default::default()
+        };
         classify(&mut h);
         assert_eq!(h.kind, DeviceKind::Phone);
         let mut h = host("Ubiquiti", &[22]);
@@ -754,7 +1147,13 @@ mod tests {
 
     #[test]
     fn titles_and_urls() {
-        assert_eq!(extract_title("<html><head><TITLE>\n HP LaserJet  M404 </title>").as_deref(), Some("HP LaserJet M404"));
-        assert_eq!(url_host("http://192.168.1.5:49152/desc.xml").as_deref(), Some("192.168.1.5"));
+        assert_eq!(
+            extract_title("<html><head><TITLE>\n HP LaserJet  M404 </title>").as_deref(),
+            Some("HP LaserJet M404")
+        );
+        assert_eq!(
+            url_host("http://192.168.1.5:49152/desc.xml").as_deref(),
+            Some("192.168.1.5")
+        );
     }
 }

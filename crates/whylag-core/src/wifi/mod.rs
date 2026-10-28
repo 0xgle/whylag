@@ -13,7 +13,9 @@ use crate::error::{ApiError, ApiResult};
 use crate::rf::Band;
 use crate::settings::DataSource;
 use crate::state::AppState;
+use crate::util::now_ms;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::Ordering;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -57,7 +59,10 @@ impl Security {
     }
 
     pub fn is_enterprise(self) -> bool {
-        matches!(self, Security::WpaEnterprise | Security::Wpa2Enterprise | Security::Wpa3Enterprise)
+        matches!(
+            self,
+            Security::WpaEnterprise | Security::Wpa2Enterprise | Security::Wpa3Enterprise
+        )
     }
 }
 
@@ -172,24 +177,55 @@ pub struct ScanResult {
 }
 
 /// Runs a scan on the real adapter. Blocking; call from `spawn_blocking`.
-#[allow(unreachable_code)]
-fn native_scan() -> ApiResult<ScanResult> {
+#[allow(unreachable_code, unused_variables)]
+fn native_scan(trigger: bool) -> ApiResult<ScanResult> {
     #[cfg(windows)]
-    return windows::scan();
+    return windows::scan(trigger);
     #[cfg(target_os = "linux")]
-    return linux::scan();
+    return linux::scan(trigger);
     #[cfg(target_os = "macos")]
-    return macos::scan();
-    Err(ApiError::new("unsupportedPlatform", "Wi-Fi scanning is not supported on this platform"))
+    return macos::scan(trigger);
+    Err(ApiError::new(
+        "unsupportedPlatform",
+        "Wi-Fi scanning is not supported on this platform",
+    ))
 }
 
-/// Scans using the configured data source.
-pub async fn scan(state: &AppState) -> ApiResult<ScanResult> {
+/// Default minimum gap between scan requests from screens that poll.
+pub const TRIGGER_GAP_MS: u64 = 10_000;
+
+/// How a caller wants the adapter used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Trigger {
+    /// Read the adapter's cache only (monitor, security, advisor).
+    CacheOnly,
+    /// Ask for a scan if none was requested in the last `n` ms.
+    Throttled(u64),
+    /// Always ask for a scan (survey points).
+    Force,
+}
+
+/// Scan for the Wi-Fi and Survey screens. In Auto mode this falls back to the
+/// demo office when there is no adapter, with a notice explaining why.
+pub async fn scan(state: &AppState, trigger: Trigger) -> ApiResult<ScanResult> {
     let source = state.settings().data_source;
     if source == DataSource::Simulator {
         return Ok(state.sim.lock().wifi_scan());
     }
-    let native = tokio::task::spawn_blocking(native_scan)
+    let fire = match trigger {
+        Trigger::CacheOnly => false,
+        Trigger::Force => true,
+        Trigger::Throttled(gap) => {
+            now_ms().saturating_sub(state.last_scan_trigger_ms.load(Ordering::Relaxed))
+                >= gap.max(3000)
+        }
+    };
+    if fire {
+        state
+            .last_scan_trigger_ms
+            .store(now_ms(), Ordering::Relaxed);
+    }
+    let native = tokio::task::spawn_blocking(move || native_scan(fire))
         .await
         .map_err(|e| ApiError::internal(e.to_string()))?;
     let mut result = match (source, native) {
@@ -198,13 +234,22 @@ pub async fn scan(state: &AppState) -> ApiResult<ScanResult> {
         (_, Ok(r)) => {
             let mut sim = state.sim.lock().wifi_scan();
             sim.notices.extend(r.notices);
-            sim.notices.push(Notice { code: "noWifiAdapter".into(), detail: String::new() });
+            sim.notices.push(Notice {
+                code: "noWifiAdapter".into(),
+                detail: String::new(),
+            });
             sim
         }
         (_, Err(e)) => {
             let mut sim = state.sim.lock().wifi_scan();
-            sim.notices.push(Notice { code: e.code.clone(), detail: e.message.clone() });
-            sim.notices.push(Notice { code: "fellBackToSimulator".into(), detail: String::new() });
+            sim.notices.push(Notice {
+                code: e.code.clone(),
+                detail: e.message.clone(),
+            });
+            sim.notices.push(Notice {
+                code: "fellBackToSimulator".into(),
+                detail: String::new(),
+            });
             sim
         }
     };
@@ -213,16 +258,40 @@ pub async fn scan(state: &AppState) -> ApiResult<ScanResult> {
     Ok(result)
 }
 
+/// Real Wi-Fi data for analysis (security, advisor, monitor): reads the cache
+/// without disturbing the radio, and never substitutes the demo office unless
+/// the user picked it, so simulated APs cannot end up in a real report.
+pub async fn scan_for_analysis(state: &AppState) -> Option<ScanResult> {
+    if state.use_simulator() {
+        return Some(state.sim.lock().wifi_scan());
+    }
+    let mut r = tokio::task::spawn_blocking(|| native_scan(false))
+        .await
+        .ok()?
+        .ok()?;
+    enrich(&mut r);
+    Some(r)
+}
+
 /// Triggers a scan and waits for the adapter to finish before reading results,
 /// so a survey sample reflects the spot where it was taken. Windows and
-/// NetworkManager refresh their caches 2-4 s after a scan request.
+/// NetworkManager refresh their caches 2-4 s after a scan request. Entries not
+/// heard since the request are dropped: they are cached readings from
+/// wherever the user stood before.
 pub async fn scan_fresh(state: &AppState, wait_ms: u64) -> ApiResult<ScanResult> {
-    let first = scan(state).await?;
+    let requested = now_ms();
+    let first = scan(state, Trigger::Force).await?;
     if first.source == ScanSource::Simulator {
         return Ok(first);
     }
     tokio::time::sleep(std::time::Duration::from_millis(wait_ms.min(8000))).await;
-    scan(state).await
+    let mut r = scan(state, Trigger::CacheOnly).await?;
+    if r.source != ScanSource::Simulator {
+        let cutoff = requested.saturating_sub(1500);
+        r.networks
+            .retain(|b| b.connected || b.last_seen_ms >= cutoff);
+    }
+    Ok(r)
 }
 
 /// Fills derived fields that scanners leave empty.
@@ -239,7 +308,11 @@ pub fn enrich(result: &mut ScanResult) {
         }
     }
     // Mark the associated BSS when the scanner did not.
-    let connected: Vec<String> = result.interfaces.iter().filter_map(|i| i.bssid.clone()).collect();
+    let connected: Vec<String> = result
+        .interfaces
+        .iter()
+        .filter_map(|i| i.bssid.clone())
+        .collect();
     for bss in &mut result.networks {
         if connected.iter().any(|b| b.eq_ignore_ascii_case(&bss.bssid)) {
             bss.connected = true;

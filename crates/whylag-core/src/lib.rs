@@ -11,16 +11,16 @@ pub mod state;
 pub mod util;
 
 pub mod advisor;
-pub mod monitor;
-pub mod rf;
-pub mod security;
-pub mod sim;
-pub mod survey;
 pub mod discovery;
+pub mod monitor;
 pub mod net;
 pub mod oui;
 pub mod path;
 pub mod perf;
+pub mod rf;
+pub mod security;
+pub mod sim;
+pub mod survey;
 pub mod wifi;
 
 pub use error::{ApiError, ApiResult};

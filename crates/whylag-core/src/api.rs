@@ -28,6 +28,21 @@ struct PositionPx {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct Tz {
+    tz_offset_min: Option<i32>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScanTrigger {
+    /// Ask the adapter for a fresh scan (Wi-Fi and Survey screens only).
+    trigger: Option<bool>,
+    /// Minimum gap between scan requests; the survey walk asks more often.
+    min_gap_ms: Option<u64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct WaitMs {
     wait_ms: Option<u64>,
 }
@@ -48,12 +63,14 @@ struct Range {
 
 #[derive(Deserialize)]
 struct Enable {
-    enable: bool,
+    /// `None` only reports the current status.
+    enable: Option<bool>,
 }
 
 #[derive(Deserialize)]
 struct Host {
     host: String,
+    code: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -61,15 +78,11 @@ struct Content {
     content: String,
 }
 
-#[derive(Deserialize)]
-struct WriteText {
-    path: String,
-    content: String,
-}
-
 /// Runs CPU-heavy work off the async executor.
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> ApiResult<T> {
-    tokio::task::spawn_blocking(f).await.map_err(|e| ApiError::internal(e.to_string()))
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))
 }
 
 pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResult<Value> {
@@ -81,7 +94,17 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
             "dataDir": state.data_dir.display().to_string(),
         })),
         "settings.get" => to_value(state.settings()),
-        "settings.set" => to_value(state.update_settings(p)?),
+        "settings.set" => {
+            let before = state.settings().data_source;
+            let updated = state.update_settings(p)?;
+            // Monitoring writes to a demo or a live database: switching the
+            // data source mid-run would mix them, so it stops.
+            if updated.data_source != before {
+                crate::monitor::stop(state);
+                *state.sim_fallback.write() = false;
+            }
+            to_value(updated)
+        }
 
         "sim.info" => to_value(state.sim.lock().info()),
         "sim.setPosition" => {
@@ -91,7 +114,15 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
             to_value(sim.position)
         }
 
-        "wifi.scan" => to_value(crate::wifi::scan(state).await?),
+        "wifi.scan" => {
+            let r: ScanTrigger = params(p)?;
+            let t = if r.trigger.unwrap_or(false) {
+                crate::wifi::Trigger::Throttled(r.min_gap_ms.unwrap_or(crate::wifi::TRIGGER_GAP_MS))
+            } else {
+                crate::wifi::Trigger::CacheOnly
+            };
+            to_value(crate::wifi::scan(state, t).await?)
+        }
         "wifi.scanFresh" => {
             let w: WaitMs = params(p)?;
             to_value(crate::wifi::scan_fresh(state, w.wait_ms.unwrap_or(3500)).await?)
@@ -108,10 +139,12 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
             std::fs::rename(&tmp, &path)?;
             Ok(Value::Null)
         }
-        "project.loadAutosave" => match std::fs::read_to_string(state.data_dir.join("autosave.whylag")) {
-            Ok(text) => Ok(Value::String(text)),
-            Err(_) => Ok(Value::Null),
-        },
+        "project.loadAutosave" => {
+            match std::fs::read_to_string(state.data_dir.join("autosave.whylag")) {
+                Ok(text) => Ok(Value::String(text)),
+                Err(_) => Ok(Value::Null),
+            }
+        }
 
         "survey.heatmap" => {
             let req: crate::survey::HeatmapRequest = params(p)?;
@@ -152,25 +185,45 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
         }
         "perf.peerServer" => {
             let r: Enable = params(p)?;
-            let mut status = crate::perf::peer::PeerServerStatus { port: crate::perf::peer::PORT, ..Default::default() };
-            let running = state.peer_server.lock().is_some();
-            if r.enable && !running {
-                match crate::perf::peer::start_server().await {
-                    Ok(handle) => *state.peer_server.lock() = Some(handle),
+            let mut status = crate::perf::peer::PeerServerStatus {
+                port: crate::perf::peer::PORT,
+                ..Default::default()
+            };
+            // Forget a listener that switched itself off.
+            let running = {
+                let mut guard = state.peer_server.lock();
+                if guard.as_ref().is_some_and(|s| !s.is_running()) {
+                    *guard = None;
+                }
+                guard.is_some()
+            };
+            match r.enable {
+                Some(true) if !running => match crate::perf::peer::start_server().await {
+                    Ok(server) => *state.peer_server.lock() = Some(server),
                     Err(e) => status.error = Some(e.to_string()),
+                },
+                Some(false) => {
+                    if let Some(s) = state.peer_server.lock().take() {
+                        s.handle.abort();
+                    }
                 }
-            } else if !r.enable {
-                if let Some(h) = state.peer_server.lock().take() {
-                    h.abort();
-                }
+                _ => {}
             }
-            status.listening = state.peer_server.lock().is_some();
+            if let Some(s) = state.peer_server.lock().as_ref() {
+                status.listening = true;
+                status.code = Some(s.code.clone());
+                status.expires_ms = Some(s.expires_ms);
+            }
             status.addresses = crate::perf::peer::local_addresses();
             to_value(status)
         }
         "perf.peerTest" => {
             let r: Host = params(p)?;
-            to_value(crate::perf::peer::run_test(&r.host).await.map_err(|e| ApiError::new(e, "peer test failed"))?)
+            to_value(
+                crate::perf::peer::run_test(&r.host, r.code.as_deref().unwrap_or(""))
+                    .await
+                    .map_err(|e| ApiError::new(e, "peer test failed"))?,
+            )
         }
         // Short throughput probe for survey points: peer test or simulated.
         "survey.throughput" => {
@@ -178,9 +231,20 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
             if state.use_simulator() || r.host.is_empty() && state.sim_active() {
                 let mbps = state.sim.lock().throughput_here();
                 tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-                return to_value(crate::perf::peer::PeerResult { host: "simulator".into(), download_mbps: mbps, upload_mbps: mbps * 0.8, connect_ms: 2.0 });
+                return to_value(crate::perf::peer::PeerResult {
+                    host: "simulator".into(),
+                    download_mbps: mbps,
+                    upload_mbps: mbps * 0.8,
+                    connect_ms: 2.0,
+                });
             }
-            let res = crate::perf::peer::run_test_for(&r.host, std::time::Duration::from_secs(2)).await.map_err(|e| ApiError::new(e, "peer test failed"))?;
+            let res = crate::perf::peer::run_test_for(
+                &r.host,
+                r.code.as_deref().unwrap_or(""),
+                std::time::Duration::from_secs(2),
+            )
+            .await
+            .map_err(|e| ApiError::new(e, "peer test failed"))?;
             to_value(res)
         }
 
@@ -195,7 +259,7 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
         }
 
         "security.scan" => {
-            let scan = crate::wifi::scan(state).await.ok();
+            let scan = crate::wifi::scan_for_analysis(state).await;
             let discovery = state.discovery.lock().clone();
             let perf = state.perf.lock().clone();
             let report = crate::security::report(scan.as_ref(), Some(&discovery), Some(&perf));
@@ -206,7 +270,10 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
 
         "monitor.start" => {
             let r: Interval = params(p)?;
-            to_value(crate::monitor::start(state.clone(), r.interval_s.unwrap_or(5)).map_err(|e| ApiError::new("monitor", e))?)
+            to_value(
+                crate::monitor::start(state.clone(), r.interval_s.unwrap_or(5))
+                    .map_err(|e| ApiError::new("monitor", e))?,
+            )
         }
         "monitor.stop" => {
             crate::monitor::stop(state);
@@ -219,7 +286,12 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
         "monitor.series" => {
             let r: Range = params(p)?;
             let st = state.clone();
-            to_value(blocking(move || crate::monitor::series(&st, r.from_ms, r.to_ms, r.points.unwrap_or(600))).await?)
+            to_value(
+                blocking(move || {
+                    crate::monitor::series(&st, r.from_ms, r.to_ms, r.points.unwrap_or(600))
+                })
+                .await?,
+            )
         }
         "monitor.clear" => {
             crate::monitor::clear(state);
@@ -227,7 +299,14 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
         }
 
         "advisor.diagnose" => {
-            let scan = crate::wifi::scan(state).await.ok();
+            let tz: Tz = params(p)?;
+            // The demo history is recorded in Warsaw time.
+            let tz_offset_min = if state.use_simulator() {
+                60
+            } else {
+                tz.tz_offset_min.unwrap_or(0)
+            };
+            let scan = crate::wifi::scan_for_analysis(state).await;
             let st = state.clone();
             let monitor = blocking(move || crate::monitor::status(&st)).await?;
             let perf = state.perf.lock().clone();
@@ -243,22 +322,9 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
                 security: security.as_ref(),
                 monitor: Some(&monitor),
                 settings: &settings,
+                tz_offset_min,
             });
             to_value(d)
-        }
-
-        "fs.writeText" => {
-            // Only reached with a path the user picked in a native save dialog.
-            let w: WriteText = params(p)?;
-            std::fs::write(&w.path, w.content)?;
-            Ok(Value::Null)
-        }
-
-        "fs.writeBase64" => {
-            let w: WriteText = params(p)?;
-            let bytes = crate::util::base64_decode(&w.content).ok_or_else(|| ApiError::bad_params("invalid base64"))?;
-            std::fs::write(&w.path, bytes)?;
-            Ok(Value::Null)
         }
 
         _ => Err(ApiError::unknown_method(method)),

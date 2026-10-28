@@ -69,19 +69,32 @@ pub fn parse_response(buf: &[u8], id: u16) -> Option<(u8, Vec<Ipv4Addr>)> {
 
 /// Sends one A query to `server` and waits for the matching answer.
 pub async fn query(server: IpAddr, name: &str, timeout: Duration) -> Option<DnsAnswer> {
-    let bind: SocketAddr = if server.is_ipv4() { "0.0.0.0:0".parse().unwrap() } else { "[::]:0".parse().unwrap() };
+    let bind: SocketAddr = if server.is_ipv4() {
+        "0.0.0.0:0".parse().unwrap()
+    } else {
+        "[::]:0".parse().unwrap()
+    };
     let sock = tokio::net::UdpSocket::bind(bind).await.ok()?;
     let id: u16 = rand::random();
     let packet = build_query(id, name);
     let started = Instant::now();
-    sock.send_to(&packet, SocketAddr::new(server, 53)).await.ok()?;
+    sock.send_to(&packet, SocketAddr::new(server, 53))
+        .await
+        .ok()?;
     let mut buf = [0u8; 1500];
     let deadline = started + timeout;
     loop {
         let left = deadline.checked_duration_since(Instant::now())?;
-        let (n, _) = tokio::time::timeout(left, sock.recv_from(&mut buf)).await.ok()?.ok()?;
+        let (n, _) = tokio::time::timeout(left, sock.recv_from(&mut buf))
+            .await
+            .ok()?
+            .ok()?;
         if let Some((rcode, addresses)) = parse_response(&buf[..n], id) {
-            return Some(DnsAnswer { rtt_ms: started.elapsed().as_secs_f64() * 1000.0, rcode, addresses });
+            return Some(DnsAnswer {
+                rtt_ms: started.elapsed().as_secs_f64() * 1000.0,
+                rcode,
+                addresses,
+            });
         }
     }
 }

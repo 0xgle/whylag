@@ -64,7 +64,11 @@ impl Hop {
         let ok: Vec<f64> = self.samples.iter().flatten().copied().collect();
         self.sent = self.samples.len() as u32;
         self.received = ok.len() as u32;
-        self.loss_pct = if self.sent == 0 { 0.0 } else { 100.0 * (self.sent - self.received) as f64 / self.sent as f64 };
+        self.loss_pct = if self.sent == 0 {
+            0.0
+        } else {
+            100.0 * (self.sent - self.received) as f64 / self.sent as f64
+        };
         self.best = ok.iter().copied().reduce(f64::min);
         self.worst = ok.iter().copied().reduce(f64::max);
         self.avg = (!ok.is_empty()).then(|| ok.iter().sum::<f64>() / ok.len() as f64);
@@ -124,7 +128,9 @@ pub fn parse_trace(text: &str) -> Vec<(u8, Option<Ipv4Addr>)> {
     for line in text.lines() {
         let trimmed = line.trim_start();
         let ttl_str: String = trimmed.chars().take_while(|c| c.is_ascii_digit()).collect();
-        let Ok(ttl) = ttl_str.parse::<u8>() else { continue };
+        let Ok(ttl) = ttl_str.parse::<u8>() else {
+            continue;
+        };
         if ttl == 0 || trimmed.contains("[LOCALHOST]") {
             continue;
         }
@@ -144,7 +150,18 @@ pub fn parse_trace(text: &str) -> Vec<(u8, Option<Ipv4Addr>)> {
 /// other systems use the traceroute tool.
 async fn trace(dest: Ipv4Addr, max: u8) -> Vec<(u8, Option<Ipv4Addr>)> {
     if net::icmp::native_ttl() {
-        let probes = (1..=max).map(|ttl| tokio::task::spawn_blocking(move || (ttl, net::icmp::ping(dest, Duration::from_millis(1500), Some(ttl)))));
+        // Stagger the probes ~50 ms apart: a burst of 30 at once trips ICMP
+        // rate limits on routers and shows up as fake loss.
+        let probes = (1..=max).map(|ttl| async move {
+            tokio::time::sleep(Duration::from_millis(50 * (ttl as u64 - 1))).await;
+            tokio::task::spawn_blocking(move || {
+                (
+                    ttl,
+                    net::icmp::ping(dest, Duration::from_millis(1500), Some(ttl)),
+                )
+            })
+            .await
+        });
         let mut hops: Vec<(u8, Option<Ipv4Addr>)> = Vec::new();
         for r in join_all(probes).await.into_iter().flatten() {
             let (ttl, res) = r;
@@ -172,7 +189,10 @@ async fn trace(dest: Ipv4Addr, max: u8) -> Vec<(u8, Option<Ipv4Addr>)> {
     let ip = dest.to_string();
     let max_s = max.to_string();
     let attempts: Vec<(&str, Vec<&str>)> = vec![
-        ("traceroute", vec!["-n", "-q", "1", "-w", "1", "-m", &max_s, &ip]),
+        (
+            "traceroute",
+            vec!["-n", "-q", "1", "-w", "1", "-m", &max_s, &ip],
+        ),
         ("tracepath", vec!["-n", "-m", &max_s, &ip]),
     ];
     for (tool, args) in attempts {
@@ -225,7 +245,11 @@ pub fn assign_segments(hops: &mut [Hop], dest: Ipv4Addr) {
         }
         if net::is_private(IpAddr::V4(ip)) {
             // Private addresses after the ISP edge are still inside the ISP.
-            hop.segment = if seen_public { Segment::Isp } else { Segment::Lan };
+            hop.segment = if seen_public {
+                Segment::Isp
+            } else {
+                Segment::Lan
+            };
             continue;
         }
         let domain = hop.name.as_deref().and_then(domain_of);
@@ -254,43 +278,97 @@ pub fn assign_segments(hops: &mut [Hop], dest: Ipv4Addr) {
 /// to probes (ICMP rate limiting), not real packet loss.
 pub fn diagnose(hops: &[Hop]) -> Vec<PathFinding> {
     let mut f = Vec::new();
-    let answered: Vec<&Hop> = hops.iter().filter(|h| h.ip.is_some() && h.sent > 0).collect();
+    let answered: Vec<&Hop> = hops
+        .iter()
+        .filter(|h| h.ip.is_some() && h.sent > 0)
+        .collect();
     let Some(last) = answered.last() else {
-        f.push(PathFinding { code: "noRoute".into(), ttl: None, segment: None, value: None });
+        f.push(PathFinding {
+            code: "noRoute".into(),
+            ttl: None,
+            segment: None,
+            value: None,
+        });
         return f;
     };
     let dest_loss = last.loss_pct;
-    if hops.iter().any(|h| h.ip.map(net::is_cgnat).unwrap_or(false)) {
-        f.push(PathFinding { code: "cgnat".into(), ttl: None, segment: Some(Segment::Isp), value: None });
+    if hops
+        .iter()
+        .any(|h| h.ip.map(net::is_cgnat).unwrap_or(false))
+    {
+        f.push(PathFinding {
+            code: "cgnat".into(),
+            ttl: None,
+            segment: Some(Segment::Isp),
+            value: None,
+        });
     }
     // Where does loss that persists to the destination begin?
     if dest_loss >= 2.0 {
-        let start = answered.iter().position(|h| answered.iter().skip_while(|x| x.ttl < h.ttl).all(|x| x.loss_pct >= dest_loss * 0.5)).unwrap_or(answered.len() - 1);
+        let start = answered
+            .iter()
+            .position(|h| {
+                answered
+                    .iter()
+                    .skip_while(|x| x.ttl < h.ttl)
+                    .all(|x| x.loss_pct >= dest_loss * 0.5)
+            })
+            .unwrap_or(answered.len() - 1);
         let hop = answered[start];
-        f.push(PathFinding { code: "lossFrom".into(), ttl: Some(hop.ttl), segment: Some(hop.segment), value: Some(dest_loss) });
+        f.push(PathFinding {
+            code: "lossFrom".into(),
+            ttl: Some(hop.ttl),
+            segment: Some(hop.segment),
+            value: Some(dest_loss),
+        });
     }
     for (i, h) in answered.iter().enumerate() {
         if i + 1 < answered.len() && h.loss_pct >= 10.0 && dest_loss < h.loss_pct * 0.3 {
-            f.push(PathFinding { code: "rateLimited".into(), ttl: Some(h.ttl), segment: Some(h.segment), value: Some(h.loss_pct) });
+            f.push(PathFinding {
+                code: "rateLimited".into(),
+                ttl: Some(h.ttl),
+                segment: Some(h.segment),
+                value: Some(h.loss_pct),
+            });
         }
     }
     // Latency jumps that persist (not just one slow-to-answer router).
     for w in answered.windows(2) {
         let (a, b) = (w[0], w[1]);
         if let (Some(la), Some(lb)) = (a.avg, b.avg) {
-            let persists = answered.iter().filter(|x| x.ttl > b.ttl).all(|x| x.avg.map(|v| v >= lb * 0.8).unwrap_or(true));
+            let persists = answered
+                .iter()
+                .filter(|x| x.ttl > b.ttl)
+                .all(|x| x.avg.map(|v| v >= lb * 0.8).unwrap_or(true));
             if lb - la > 30.0 && persists {
-                f.push(PathFinding { code: "latencyJump".into(), ttl: Some(b.ttl), segment: Some(b.segment), value: Some(lb - la) });
+                f.push(PathFinding {
+                    code: "latencyJump".into(),
+                    ttl: Some(b.ttl),
+                    segment: Some(b.segment),
+                    value: Some(lb - la),
+                });
             }
         }
     }
     if let Some(first) = answered.first().filter(|h| h.segment == Segment::Lan) {
         if first.avg.unwrap_or(0.0) > 10.0 || first.jitter.unwrap_or(0.0) > 5.0 {
-            f.push(PathFinding { code: "slowGateway".into(), ttl: Some(first.ttl), segment: Some(Segment::Lan), value: first.avg });
+            f.push(PathFinding {
+                code: "slowGateway".into(),
+                ttl: Some(first.ttl),
+                segment: Some(Segment::Lan),
+                value: first.avg,
+            });
         }
     }
-    if f.iter().all(|x| x.code == "cgnat" || x.code == "rateLimited") {
-        f.push(PathFinding { code: "healthy".into(), ttl: None, segment: None, value: last.avg });
+    if f.iter()
+        .all(|x| x.code == "cgnat" || x.code == "rateLimited")
+    {
+        f.push(PathFinding {
+            code: "healthy".into(),
+            ttl: None,
+            segment: None,
+            value: last.avg,
+        });
     }
     f
 }
@@ -301,13 +379,23 @@ pub fn start(state: Arc<AppState>, req: PathRequest) -> PathRun {
         if run.running {
             return run.clone();
         }
-        *run = PathRun { running: true, phase: "resolve".into(), started_ms: now_ms(), target: req.target.clone(), ..Default::default() };
+        *run = PathRun {
+            running: true,
+            phase: "resolve".into(),
+            started_ms: now_ms(),
+            target: req.target.clone(),
+            ..Default::default()
+        };
     }
     state.path_handle.cancel.store(false, Ordering::SeqCst);
     let simulate = state.use_simulator();
     let st = state.clone();
     tokio::spawn(async move {
-        let result = if simulate { crate::sim::net::path(st.clone(), req).await } else { run(st.clone(), req).await };
+        let result = if simulate {
+            crate::util::catch_job(crate::sim::net::path(st.clone(), req)).await
+        } else {
+            crate::util::catch_job(run(st.clone(), req)).await
+        };
         let mut run = st.path.lock();
         if let Err(e) = result {
             run.error = Some(e);
@@ -364,7 +452,9 @@ async fn run(state: Arc<AppState>, req: PathRequest) -> Result<(), String> {
         }
         let results = join_all(hops.iter().map(|h| async move {
             match h.ip {
-                Some(ip) => net::icmp::ping_async(ip, Duration::from_millis(1200)).await.rtt(),
+                Some(ip) => net::icmp::ping_async(ip, Duration::from_millis(1200))
+                    .await
+                    .rtt(),
                 None => None,
             }
         }))
@@ -392,7 +482,14 @@ mod tests {
     #[test]
     fn parses_traceroute_formats() {
         let tr = "traceroute to 8.8.8.8 (8.8.8.8), 30 hops max\n 1  192.168.1.1  1.123 ms\n 2  *\n 3  83.1.4.10  9.88 ms\n";
-        assert_eq!(parse_trace(tr), vec![(1, Some("192.168.1.1".parse().unwrap())), (2, None), (3, Some("83.1.4.10".parse().unwrap()))]);
+        assert_eq!(
+            parse_trace(tr),
+            vec![
+                (1, Some("192.168.1.1".parse().unwrap())),
+                (2, None),
+                (3, Some("83.1.4.10".parse().unwrap()))
+            ]
+        );
         let tp = " 1?: [LOCALHOST]                      pmtu 1500\n 1:  192.168.1.1                                           0.512ms\n 1:  192.168.1.1                                           0.401ms\n 2:  no reply\n 3:  100.72.0.1                                            8.1ms\n";
         let p = parse_trace(tp);
         assert_eq!(p[0], (1, Some("192.168.1.1".parse().unwrap())));
@@ -422,7 +519,9 @@ mod tests {
             hop(4, "8.8.8.8", Segment::Destination, 0.0, 13.0),
         ];
         let f = diagnose(&hops);
-        assert!(f.iter().any(|x| x.code == "rateLimited" && x.ttl == Some(3)));
+        assert!(f
+            .iter()
+            .any(|x| x.code == "rateLimited" && x.ttl == Some(3)));
         assert!(f.iter().any(|x| x.code == "cgnat"));
         assert!(f.iter().any(|x| x.code == "healthy"));
         let hops = vec![
@@ -453,6 +552,16 @@ mod tests {
         assert_eq!(domain_of("x.y.orange.pl").as_deref(), Some("orange.pl"));
         assign_segments(&mut hops, "8.8.8.8".parse().unwrap());
         let segs: Vec<Segment> = hops.iter().map(|h| h.segment).collect();
-        assert_eq!(segs, vec![Segment::Lan, Segment::Isp, Segment::Isp, Segment::Isp, Segment::Internet, Segment::Destination]);
+        assert_eq!(
+            segs,
+            vec![
+                Segment::Lan,
+                Segment::Isp,
+                Segment::Isp,
+                Segment::Isp,
+                Segment::Internet,
+                Segment::Destination
+            ]
+        );
     }
 }

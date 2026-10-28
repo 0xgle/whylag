@@ -44,7 +44,14 @@ pub struct LatencyStats {
 }
 
 impl LatencyStats {
-    pub fn from_samples(id: &str, label: &str, host: &str, group: &str, kind: Option<ProbeKind>, samples: Vec<Option<f64>>) -> Self {
+    pub fn from_samples(
+        id: &str,
+        label: &str,
+        host: &str,
+        group: &str,
+        kind: Option<ProbeKind>,
+        samples: Vec<Option<f64>>,
+    ) -> Self {
         let ok: Vec<f64> = samples.iter().flatten().copied().collect();
         let sent = samples.len() as u32;
         let received = ok.len() as u32;
@@ -56,7 +63,11 @@ impl LatencyStats {
             group: group.into(),
             sent,
             received,
-            loss_pct: if sent == 0 { 0.0 } else { 100.0 * (sent - received) as f64 / sent as f64 },
+            loss_pct: if sent == 0 {
+                0.0
+            } else {
+                100.0 * (sent - received) as f64 / sent as f64
+            },
             min: ok.iter().copied().reduce(f64::min),
             avg: (!ok.is_empty()).then(|| ok.iter().sum::<f64>() / ok.len() as f64),
             median: median(&ok),
@@ -156,14 +167,62 @@ struct Target {
 }
 
 const INTERNET_TARGETS: &[Target] = &[
-    Target { id: "cloudflare", label: "Cloudflare DNS", host: "1.1.1.1", group: "internet", tcp_port: None },
-    Target { id: "google-dns", label: "Google DNS", host: "8.8.8.8", group: "internet", tcp_port: None },
-    Target { id: "google", label: "Google", host: "www.google.com", group: "internet", tcp_port: Some(443) },
-    Target { id: "youtube", label: "YouTube", host: "www.youtube.com", group: "internet", tcp_port: Some(443) },
-    Target { id: "teams", label: "Microsoft Teams", host: "teams.microsoft.com", group: "internet", tcp_port: Some(443) },
-    Target { id: "zoom", label: "Zoom", host: "zoom.us", group: "internet", tcp_port: Some(443) },
-    Target { id: "netflix", label: "Netflix", host: "www.netflix.com", group: "internet", tcp_port: Some(443) },
-    Target { id: "steam", label: "Steam", host: "store.steampowered.com", group: "internet", tcp_port: Some(443) },
+    Target {
+        id: "cloudflare",
+        label: "Cloudflare DNS",
+        host: "1.1.1.1",
+        group: "internet",
+        tcp_port: None,
+    },
+    Target {
+        id: "google-dns",
+        label: "Google DNS",
+        host: "8.8.8.8",
+        group: "internet",
+        tcp_port: None,
+    },
+    Target {
+        id: "google",
+        label: "Google",
+        host: "www.google.com",
+        group: "internet",
+        tcp_port: Some(443),
+    },
+    Target {
+        id: "youtube",
+        label: "YouTube",
+        host: "www.youtube.com",
+        group: "internet",
+        tcp_port: Some(443),
+    },
+    Target {
+        id: "teams",
+        label: "Microsoft Teams",
+        host: "teams.microsoft.com",
+        group: "internet",
+        tcp_port: Some(443),
+    },
+    Target {
+        id: "zoom",
+        label: "Zoom",
+        host: "zoom.us",
+        group: "internet",
+        tcp_port: Some(443),
+    },
+    Target {
+        id: "netflix",
+        label: "Netflix",
+        host: "www.netflix.com",
+        group: "internet",
+        tcp_port: Some(443),
+    },
+    Target {
+        id: "steam",
+        label: "Steam",
+        host: "store.steampowered.com",
+        group: "internet",
+        tcp_port: Some(443),
+    },
 ];
 
 const PUBLIC_RESOLVERS: &[(&str, &str)] = &[
@@ -173,12 +232,26 @@ const PUBLIC_RESOLVERS: &[(&str, &str)] = &[
     ("208.67.222.222", "OpenDNS"),
 ];
 
-const DNS_NAMES: &[&str] = &["google.com", "wikipedia.org", "microsoft.com", "netflix.com", "github.com", "amazon.com", "allegro.pl", "onet.pl"];
+const DNS_NAMES: &[&str] = &[
+    "google.com",
+    "wikipedia.org",
+    "microsoft.com",
+    "netflix.com",
+    "github.com",
+    "amazon.com",
+    "allegro.pl",
+    "onet.pl",
+];
 
 /// Runs `count` probes at `interval`. Services with a TCP port are timed by
 /// TCP handshake; everything else by ICMP echo, switching to a TCP handshake
 /// on port 443 if the first few echoes all go unanswered (ICMP filtered).
-pub async fn probe_series(ip: IpAddr, tcp_port: Option<u16>, count: usize, interval: Duration) -> (Option<ProbeKind>, Vec<Option<f64>>) {
+pub async fn probe_series(
+    ip: IpAddr,
+    tcp_port: Option<u16>,
+    count: usize,
+    interval: Duration,
+) -> (Option<ProbeKind>, Vec<Option<f64>>) {
     let timeout = Duration::from_millis(1000);
     let mut kind = match (ip, tcp_port) {
         (_, Some(_)) | (IpAddr::V6(_), None) => ProbeKind::Tcp,
@@ -212,13 +285,22 @@ pub fn start(state: Arc<AppState>, req: PerfRequest) -> PerfRun {
         if run.running {
             return run.clone();
         }
-        *run = PerfRun { running: true, phase: "starting".into(), started_ms: now_ms(), ..Default::default() };
+        *run = PerfRun {
+            running: true,
+            phase: "starting".into(),
+            started_ms: now_ms(),
+            ..Default::default()
+        };
     }
     state.perf_handle.cancel.store(false, Ordering::SeqCst);
     let simulate = state.use_simulator();
     let st = state.clone();
     tokio::spawn(async move {
-        let result = if simulate { crate::sim::net::perf(st.clone(), req).await } else { run(st.clone(), req).await };
+        let result = if simulate {
+            crate::util::catch_job(crate::sim::net::perf(st.clone(), req)).await
+        } else {
+            crate::util::catch_job(run(st.clone(), req)).await
+        };
         let mut run = st.perf.lock();
         if let Err(e) = result {
             run.error = Some(e);
@@ -235,28 +317,65 @@ pub fn stop(state: &AppState) {
     state.perf_handle.cancel.store(true, Ordering::SeqCst);
 }
 
+/// Both probes answered with addresses: hijacked. Both NXDOMAIN: clean.
+/// Anything else (timeouts, mixed answers): unknown.
+fn hijack_verdict(a: Option<&dns::DnsAnswer>, b: Option<&dns::DnsAnswer>) -> Option<bool> {
+    let forged = |x: &dns::DnsAnswer| x.rcode == 0 && !x.addresses.is_empty();
+    match (a, b) {
+        (Some(a), Some(b)) if forged(a) && forged(b) => Some(true),
+        (Some(a), Some(b)) if a.rcode == 3 && b.rcode == 3 => Some(false),
+        _ => None,
+    }
+}
+
 fn set(state: &AppState, f: impl FnOnce(&mut PerfRun)) {
     f(&mut state.perf.lock());
 }
 
 async fn run(state: Arc<AppState>, req: PerfRequest) -> Result<(), String> {
-    let local = tokio::task::spawn_blocking(net::local_net).await.ok().flatten();
+    let local = tokio::task::spawn_blocking(net::local_net)
+        .await
+        .ok()
+        .flatten();
     if req.latency {
         set(&state, |r| r.phase = "latency".into());
         let mut jobs: Vec<(String, String, String, String, Option<u16>)> = Vec::new();
         if let Some(gw) = local.as_ref().and_then(|l| l.gateway) {
-            jobs.push(("gateway".into(), "gateway".into(), gw.to_string(), "lan".into(), None));
+            jobs.push((
+                "gateway".into(),
+                "gateway".into(),
+                gw.to_string(),
+                "lan".into(),
+                None,
+            ));
         }
         for t in INTERNET_TARGETS {
-            jobs.push((t.id.into(), t.label.into(), t.host.into(), t.group.into(), t.tcp_port));
+            jobs.push((
+                t.id.into(),
+                t.label.into(),
+                t.host.into(),
+                t.group.into(),
+                t.tcp_port,
+            ));
         }
-        let futures = jobs.into_iter().map(|(id, label, host, group, port)| async move {
-            let Some(ip) = net::resolve(&host).await else {
-                return LatencyStats { id, label, host, group, sent: 20, received: 0, loss_pct: 100.0, ..Default::default() };
-            };
-            let (kind, samples) = probe_series(ip, port, 20, Duration::from_millis(150)).await;
-            LatencyStats::from_samples(&id, &label, &host, &group, kind, samples)
-        });
+        let futures = jobs
+            .into_iter()
+            .map(|(id, label, host, group, port)| async move {
+                let Some(ip) = net::resolve(&host).await else {
+                    return LatencyStats {
+                        id,
+                        label,
+                        host,
+                        group,
+                        sent: 20,
+                        received: 0,
+                        loss_pct: 100.0,
+                        ..Default::default()
+                    };
+                };
+                let (kind, samples) = probe_series(ip, port, 20, Duration::from_millis(150)).await;
+                LatencyStats::from_samples(&id, &label, &host, &group, kind, samples)
+            });
         let results = join_all(futures).await;
         set(&state, |r| {
             r.latency = results;
@@ -269,8 +388,15 @@ async fn run(state: Arc<AppState>, req: PerfRequest) -> Result<(), String> {
 
     if req.dns {
         set(&state, |r| r.phase = "dns".into());
-        let system: Vec<IpAddr> = local.as_ref().map(|l| l.dns_servers.clone()).unwrap_or_default();
-        let mut servers: Vec<(IpAddr, String, bool)> = system.iter().filter(|ip| !ip.is_loopback()).map(|ip| (*ip, ip.to_string(), true)).collect();
+        let system: Vec<IpAddr> = local
+            .as_ref()
+            .map(|l| l.dns_servers.clone())
+            .unwrap_or_default();
+        let mut servers: Vec<(IpAddr, String, bool)> = system
+            .iter()
+            .filter(|ip| !ip.is_loopback())
+            .map(|ip| (*ip, ip.to_string(), true))
+            .collect();
         for (ip, name) in PUBLIC_RESOLVERS {
             let ip: IpAddr = ip.parse().unwrap();
             if !servers.iter().any(|(s, _, _)| *s == ip) {
@@ -286,16 +412,28 @@ async fn run(state: Arc<AppState>, req: PerfRequest) -> Result<(), String> {
                     }
                 }
             }
-            DnsResult { server: ip.to_string(), label: label.clone(), system: *sys, median_ms: median(&times), succeeded: times.len() as u32, total: DNS_NAMES.len() as u32 }
+            DnsResult {
+                server: ip.to_string(),
+                label: label.clone(),
+                system: *sys,
+                median_ms: median(&times),
+                succeeded: times.len() as u32,
+                total: DNS_NAMES.len() as u32,
+            }
         }))
         .await;
-        // Hijack check: a random name must come back NXDOMAIN.
-        let probe = format!("whylag-{:x}.invalid-domain-check.com", rand::random::<u64>());
+        // Hijack check: random names under the IANA example domains (which
+        // have no wildcard records) must come back NXDOMAIN. Only call it
+        // hijacking when both answer, so one odd reply is not an accusation.
         let mut hijack = None;
         if let Some(sys) = system.iter().find(|ip| !ip.is_loopback()) {
-            if let Some(a) = dns::query(*sys, &probe, Duration::from_millis(2000)).await {
-                hijack = Some(a.rcode == 0 && !a.addresses.is_empty());
-            }
+            let probes = ["example.com", "example.net"]
+                .map(|parent| format!("whylag-{:x}.{parent}", rand::random::<u64>()));
+            let (a, b) = tokio::join!(
+                dns::query(*sys, &probes[0], Duration::from_millis(2000)),
+                dns::query(*sys, &probes[1], Duration::from_millis(2000))
+            );
+            hijack = hijack_verdict(a.as_ref(), b.as_ref());
         }
         set(&state, |r| {
             r.dns = results;
@@ -346,7 +484,14 @@ mod tests {
 
     #[test]
     fn latency_stats() {
-        let s = LatencyStats::from_samples("x", "X", "h", "internet", Some(ProbeKind::Icmp), vec![Some(10.0), None, Some(14.0), Some(12.0)]);
+        let s = LatencyStats::from_samples(
+            "x",
+            "X",
+            "h",
+            "internet",
+            Some(ProbeKind::Icmp),
+            vec![Some(10.0), None, Some(14.0), Some(12.0)],
+        );
         assert_eq!(s.sent, 4);
         assert_eq!(s.received, 3);
         assert!((s.loss_pct - 25.0).abs() < 1e-9);

@@ -72,12 +72,27 @@ impl SimWorld {
     /// predictive planner can be compared against the walked survey.
     pub fn virtual_aps(&self) -> Vec<crate::survey::VirtualAp> {
         let mut aps: Vec<crate::survey::VirtualAp> = Vec::new();
-        for r in self.radios.iter().filter(|r| !r.ap_name.is_empty() && r.ssid == "Acme-Office") {
-            let radio = crate::survey::VirtualRadio { band: r.band, channel: r.channel, width_mhz: r.width_mhz, eirp_dbm: r.eirp_dbm, enabled: true };
+        for r in self
+            .radios
+            .iter()
+            .filter(|r| !r.ap_name.is_empty() && r.ssid == "Acme-Office")
+        {
+            let radio = crate::survey::VirtualRadio {
+                band: r.band,
+                channel: r.channel,
+                width_mhz: r.width_mhz,
+                eirp_dbm: r.eirp_dbm,
+                enabled: true,
+            };
             match aps.iter_mut().find(|a| a.name == r.ap_name) {
                 Some(ap) => ap.radios.push(radio),
                 None => aps.push(crate::survey::VirtualAp {
-                    id: r.ap_name.split_whitespace().next().unwrap_or("AP").to_string(),
+                    id: r
+                        .ap_name
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("AP")
+                        .to_string(),
                     name: r.ap_name.to_string(),
                     x: (r.x + MARGIN_M) * PX_PER_M,
                     y: (r.y + MARGIN_M) * PX_PER_M,
@@ -89,7 +104,12 @@ impl SimWorld {
     }
 
     pub fn info(&self) -> SimInfo {
-        SimInfo { position: self.position, width_m: WIDTH_M, height_m: HEIGHT_M, floor_plan: plan::floor_plan(&self.walls) }
+        SimInfo {
+            position: self.position,
+            width_m: WIDTH_M,
+            height_m: HEIGHT_M,
+            floor_plan: plan::floor_plan(&self.walls),
+        }
     }
 
     /// Moves the simulated laptop. Accepts floor-plan pixel coordinates.
@@ -157,7 +177,8 @@ impl SimWorld {
         let t = (now - self.started_ms) as f64 / 1000.0;
         let mut networks = Vec::new();
         for i in 0..self.radios.len() {
-            let measured = self.expected_rssi(i, x, y) + self.gaussian(1.4) + (t / 7.0 + i as f64).sin() * 0.8;
+            let measured =
+                self.expected_rssi(i, x, y) + self.gaussian(1.4) + (t / 7.0 + i as f64).sin() * 0.8;
             if measured < SENSITIVITY_DBM {
                 continue;
             }
@@ -167,10 +188,16 @@ impl SimWorld {
             let stations = (r.station_base as f64 + load_wave * 2.0).max(0.0).round() as u16;
             networks.push(Bss {
                 bssid: r.bssid.to_string(),
-                ssid: if r.hidden { String::new() } else { r.ssid.to_string() },
+                ssid: if r.hidden {
+                    String::new()
+                } else {
+                    r.ssid.to_string()
+                },
                 hidden: r.hidden,
                 rssi: measured.round() as i32,
-                noise: Some(r.band.typical_noise_dbm() as i32 + if r.band == Band::B24 { 2 } else { 0 }),
+                noise: Some(
+                    r.band.typical_noise_dbm() as i32 + if r.band == Band::B24 { 2 } else { 0 },
+                ),
                 channel: r.channel,
                 frequency_mhz: rf::channel_to_freq(r.channel, r.band),
                 band: Some(r.band),
@@ -196,7 +223,10 @@ impl SimWorld {
             interfaces: vec![iface],
             networks,
             timestamp_ms: now,
-            notices: vec![Notice { code: "simulator".into(), detail: String::new() }],
+            notices: vec![Notice {
+                code: "simulator".into(),
+                detail: String::new(),
+            }],
         };
         crate::wifi::enrich(&mut result);
         result
@@ -264,8 +294,15 @@ mod tests {
     fn scan_sees_office_and_neighbours() {
         let mut world = SimWorld::new();
         let scan = world.wifi_scan();
-        assert!(scan.networks.len() > 15, "only {} networks", scan.networks.len());
-        assert!(scan.networks.iter().any(|n| n.ssid == "Acme-Office" && n.connected));
+        assert!(
+            scan.networks.len() > 15,
+            "only {} networks",
+            scan.networks.len()
+        );
+        assert!(scan
+            .networks
+            .iter()
+            .any(|n| n.ssid == "Acme-Office" && n.connected));
         assert!(scan.networks.iter().any(|n| n.hidden));
         assert_eq!(scan.interfaces[0].state, "connected");
     }

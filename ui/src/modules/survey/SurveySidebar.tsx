@@ -400,6 +400,12 @@ export function SurveySidebar({
                   <input className="input" value={s.throughputHost} onChange={(e) => s.set({ throughputHost: e.target.value })} placeholder="192.168.1.20" />
                 </label>
               )}
+              {s.measureThroughput && !isSim && (
+                <label className="side-field">
+                  <span>{t("perf.peer.code")}</span>
+                  <input className="input" inputMode="numeric" value={s.throughputCode} onChange={(e) => s.set({ throughputCode: e.target.value })} placeholder="123 456" />
+                </label>
+              )}
               {s.measureThroughput && <p className="side-help">{t("survey.tput.help")}</p>}
             </div>
           )}

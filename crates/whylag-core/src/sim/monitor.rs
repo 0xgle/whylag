@@ -16,12 +16,38 @@ fn hour_of(ts: u64) -> f64 {
 fn synth(rng: &mut StdRng, ts: u64, outage: bool, wifi_trouble: bool) -> Sample {
     let h = hour_of(ts);
     // Evening peak: everyone streams between 19:00 and 22:30.
-    let evening = if (19.0..22.5).contains(&h) { 1.0 - ((h - 20.7).abs() / 1.8).min(1.0) } else { 0.0 };
-    let congestion = evening * rng.gen_range(20.0..140.0) * if rng.gen::<f64>() < 0.6 { 1.0 } else { 0.25 };
-    let gw = if wifi_trouble && rng.gen::<f64>() < 0.35 { None } else { Some(1.2 + rng.gen_range(0.0..2.5) + if wifi_trouble { rng.gen_range(5.0..40.0) } else { 0.0 }) };
-    let inet = if outage || gw.is_none() { None } else { Some(12.0 + rng.gen_range(0.0..4.0) + congestion) };
-    let dns = inet.map(|i| i * 0.9 + rng.gen_range(18.0..30.0) + if rng.gen::<f64>() < 0.002 { 400.0 } else { 0.0 });
-    let rssi = if wifi_trouble { rng.gen_range(-80..-72) } else { rng.gen_range(-58..-50) };
+    let evening = if (19.0..22.5).contains(&h) {
+        1.0 - ((h - 20.7).abs() / 1.8).min(1.0)
+    } else {
+        0.0
+    };
+    let congestion =
+        evening * rng.gen_range(20.0..140.0) * if rng.gen::<f64>() < 0.6 { 1.0 } else { 0.25 };
+    let gw = if wifi_trouble && rng.gen::<f64>() < 0.35 {
+        None
+    } else {
+        Some(
+            1.2 + rng.gen_range(0.0..2.5)
+                + if wifi_trouble {
+                    rng.gen_range(5.0..40.0)
+                } else {
+                    0.0
+                },
+        )
+    };
+    let inet = if outage || gw.is_none() {
+        None
+    } else {
+        Some(12.0 + rng.gen_range(0.0..4.0) + congestion)
+    };
+    let dns = inet.map(|i| {
+        i * 0.9 + rng.gen_range(18.0..30.0) + if rng.gen::<f64>() < 0.002 { 400.0 } else { 0.0 }
+    });
+    let rssi = if wifi_trouble {
+        rng.gen_range(-80..-72)
+    } else {
+        rng.gen_range(-58..-50)
+    };
     Sample {
         ts,
         gateway_ms: gw,
@@ -63,7 +89,9 @@ pub struct Live {
 
 impl Default for Live {
     fn default() -> Self {
-        Self { rng: StdRng::from_entropy() }
+        Self {
+            rng: StdRng::from_entropy(),
+        }
     }
 }
 

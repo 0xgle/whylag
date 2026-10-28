@@ -34,18 +34,48 @@ pub struct LocalNet {
 impl LocalNet {
     /// The IPv4 network to scan, capped at /22 (1022 hosts) around our address.
     pub fn scan_range(&self) -> Vec<Ipv4Addr> {
-        let (Some(ip), Some(prefix)) = (self.ipv4, self.prefix_len) else { return vec![] };
+        let (Some(ip), Some(prefix)) = (self.ipv4, self.prefix_len) else {
+            return vec![];
+        };
         let prefix = prefix.max(22);
-        let mask = if prefix >= 32 { u32::MAX } else { !((1u32 << (32 - prefix)) - 1) };
+        let mask = if prefix >= 32 {
+            u32::MAX
+        } else {
+            !((1u32 << (32 - prefix)) - 1)
+        };
         let base = u32::from(ip) & mask;
         let size = 1u32 << (32 - prefix as u32);
-        (1..size.saturating_sub(1)).map(|i| Ipv4Addr::from(base + i)).filter(|a| *a != ip).collect()
+        // Point-to-point (/31) and host (/32) links have no network or
+        // broadcast address: every address in the block counts, plus the
+        // gateway, which on a /32 lies outside it.
+        if prefix >= 31 {
+            let mut v: Vec<Ipv4Addr> = (0..size)
+                .map(|i| Ipv4Addr::from(base + i))
+                .filter(|a| *a != ip)
+                .collect();
+            if let Some(g) = self.gateway.filter(|g| *g != ip && !v.contains(g)) {
+                v.push(g);
+            }
+            return v;
+        }
+        (1..size.saturating_sub(1))
+            .map(|i| Ipv4Addr::from(base + i))
+            .filter(|a| *a != ip)
+            .collect()
     }
 
     pub fn subnet_label(&self) -> Option<String> {
         let (ip, prefix) = (self.ipv4?, self.prefix_len?);
-        let mask = if prefix >= 32 { u32::MAX } else { !((1u32 << (32 - prefix)) - 1) };
-        Some(format!("{}/{}", Ipv4Addr::from(u32::from(ip) & mask), prefix))
+        let mask = if prefix >= 32 {
+            u32::MAX
+        } else {
+            !((1u32 << (32 - prefix)) - 1)
+        };
+        Some(format!(
+            "{}/{}",
+            Ipv4Addr::from(u32::from(ip) & mask),
+            prefix
+        ))
     }
 }
 
@@ -54,7 +84,10 @@ pub fn local_net() -> Option<LocalNet> {
     let iface = netdev::get_default_interface().ok()?;
     let v4 = iface.ipv4.first();
     let gateway = iface.gateway.as_ref();
-    let gw_mac = gateway.map(|g| g.mac_addr.octets()).filter(|o| o.iter().any(|b| *b != 0)).map(|o| crate::util::fmt_mac(&o));
+    let gw_mac = gateway
+        .map(|g| g.mac_addr.octets())
+        .filter(|o| o.iter().any(|b| *b != 0))
+        .map(|o| crate::util::fmt_mac(&o));
     Some(LocalNet {
         interface_name: iface.name.clone(),
         friendly_name: iface.friendly_name.clone(),
@@ -67,7 +100,10 @@ pub fn local_net() -> Option<LocalNet> {
         gateway: gateway.and_then(|g| g.ipv4.first().copied()),
         gateway_mac: gw_mac,
         dns_servers: iface.dns_servers.clone(),
-        link_speed_mbps: iface.transmit_speed.or(iface.receive_speed).map(|b| b / 1_000_000),
+        link_speed_mbps: iface
+            .transmit_speed
+            .or(iface.receive_speed)
+            .map(|b| b / 1_000_000),
         mtu: iface.mtu,
         dhcp: iface.dhcp_v4_enabled,
     })
@@ -80,7 +116,11 @@ pub fn is_private(ip: IpAddr) -> bool {
             let o = v4.octets();
             v4.is_private() || v4.is_loopback() || v4.is_link_local() || is_cgnat(v4) || o[0] == 0
         }
-        IpAddr::V6(v6) => v6.is_loopback() || (v6.segments()[0] & 0xfe00) == 0xfc00 || (v6.segments()[0] & 0xffc0) == 0xfe80,
+        IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || (v6.segments()[0] & 0xfe00) == 0xfc00
+                || (v6.segments()[0] & 0xffc0) == 0xfe80
+        }
     }
 }
 
@@ -104,10 +144,14 @@ pub enum TcpOutcome {
 pub async fn tcp_probe(addr: SocketAddr, timeout: Duration) -> (TcpOutcome, Option<f64>) {
     let start = Instant::now();
     match tokio::time::timeout(timeout, tokio::net::TcpStream::connect(addr)).await {
-        Ok(Ok(_stream)) => (TcpOutcome::Open, Some(start.elapsed().as_secs_f64() * 1000.0)),
-        Ok(Err(e)) if e.kind() == std::io::ErrorKind::ConnectionRefused => {
-            (TcpOutcome::Closed, Some(start.elapsed().as_secs_f64() * 1000.0))
-        }
+        Ok(Ok(_stream)) => (
+            TcpOutcome::Open,
+            Some(start.elapsed().as_secs_f64() * 1000.0),
+        ),
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::ConnectionRefused => (
+            TcpOutcome::Closed,
+            Some(start.elapsed().as_secs_f64() * 1000.0),
+        ),
         Ok(Err(_)) => (TcpOutcome::Error, None),
         Err(_) => (TcpOutcome::Timeout, None),
     }
@@ -119,7 +163,11 @@ pub async fn resolve(host: &str) -> Option<IpAddr> {
         return Some(ip);
     }
     let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host, 0)).await.ok()?.collect();
-    addrs.iter().find(|a| a.is_ipv4()).or(addrs.first()).map(|a| a.ip())
+    addrs
+        .iter()
+        .find(|a| a.is_ipv4())
+        .or(addrs.first())
+        .map(|a| a.ip())
 }
 
 /// Reverse DNS with a time limit (system resolver).
@@ -140,13 +188,35 @@ mod tests {
 
     #[test]
     fn scan_range_is_capped() {
-        let net = LocalNet { ipv4: Some(Ipv4Addr::new(10, 1, 2, 3)), prefix_len: Some(16), ..Default::default() };
+        let net = LocalNet {
+            ipv4: Some(Ipv4Addr::new(10, 1, 2, 3)),
+            prefix_len: Some(16),
+            ..Default::default()
+        };
         let range = net.scan_range();
         assert_eq!(range.len(), 1021); // /22 minus network, broadcast and ourselves
         assert!(!range.contains(&Ipv4Addr::new(10, 1, 2, 3)));
-        let net = LocalNet { ipv4: Some(Ipv4Addr::new(192, 168, 1, 10)), prefix_len: Some(24), ..Default::default() };
+        let net = LocalNet {
+            ipv4: Some(Ipv4Addr::new(192, 168, 1, 10)),
+            prefix_len: Some(24),
+            ..Default::default()
+        };
         assert_eq!(net.scan_range().len(), 253);
         assert_eq!(net.subnet_label().as_deref(), Some("192.168.1.0/24"));
+        // Point-to-point and host routes still find the other end / gateway.
+        let p2p = LocalNet {
+            ipv4: Some(Ipv4Addr::new(10, 0, 0, 1)),
+            prefix_len: Some(31),
+            ..Default::default()
+        };
+        assert_eq!(p2p.scan_range(), vec![Ipv4Addr::new(10, 0, 0, 0)]);
+        let host = LocalNet {
+            ipv4: Some(Ipv4Addr::new(100, 64, 3, 7)),
+            prefix_len: Some(32),
+            gateway: Some(Ipv4Addr::new(100, 64, 0, 1)),
+            ..Default::default()
+        };
+        assert_eq!(host.scan_range(), vec![Ipv4Addr::new(100, 64, 0, 1)]);
     }
 
     #[test]

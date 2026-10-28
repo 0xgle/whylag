@@ -208,7 +208,11 @@ struct Grid {
 impl Grid {
     fn new(width: f64, height: f64) -> Self {
         let cell = ((width * height / MAX_CELLS).sqrt()).ceil().max(2.0);
-        Grid { cols: (width / cell).ceil().max(1.0) as usize, rows: (height / cell).ceil().max(1.0) as usize, cell }
+        Grid {
+            cols: (width / cell).ceil().max(1.0) as usize,
+            rows: (height / cell).ceil().max(1.0) as usize,
+            cell,
+        }
     }
 
     fn center(&self, i: usize) -> (f64, f64) {
@@ -232,7 +236,10 @@ fn neighbours(grid: &Grid, samples: &[Sample], reach_px: f64, k: usize) -> Vec<V
     let bucket = reach_px.max(grid.cell);
     let mut buckets: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
     for (i, s) in samples.iter().enumerate() {
-        buckets.entry(((s.x / bucket).floor() as i64, (s.y / bucket).floor() as i64)).or_default().push(i);
+        buckets
+            .entry(((s.x / bucket).floor() as i64, (s.y / bucket).floor() as i64))
+            .or_default()
+            .push(i);
     }
     (0..grid.len())
         .map(|i| {
@@ -243,7 +250,8 @@ fn neighbours(grid: &Grid, samples: &[Sample], reach_px: f64, k: usize) -> Vec<V
                 for dy in -1..=1 {
                     if let Some(list) = buckets.get(&(bx + dx, by + dy)) {
                         for &j in list {
-                            let d = ((samples[j].x - x).powi(2) + (samples[j].y - y).powi(2)).sqrt();
+                            let d =
+                                ((samples[j].x - x).powi(2) + (samples[j].y - y).powi(2)).sqrt();
                             if d <= reach_px {
                                 near.push((j, d));
                             }
@@ -255,7 +263,9 @@ fn neighbours(grid: &Grid, samples: &[Sample], reach_px: f64, k: usize) -> Vec<V
             near.truncate(k);
             // Inverse distance weights (power 2); a sample right on the cell dominates.
             let floor = grid.cell * 0.35;
-            near.into_iter().map(|(j, d)| (j, 1.0 / d.max(floor).powi(2))).collect()
+            near.into_iter()
+                .map(|(j, d)| (j, 1.0 / d.max(floor).powi(2)))
+                .collect()
         })
         .collect()
 }
@@ -269,8 +279,16 @@ fn measured_fields(req: &HeatmapRequest, grid: &Grid, near: &[Vec<(usize, f64)>]
         }
     }
     // Per-sample lookup: bssid -> rssi.
-    let lookup: Vec<HashMap<&str, i32>> =
-        req.samples.iter().map(|s| s.readings.iter().map(|r| (r.bssid.as_str(), r.rssi)).collect()).collect();
+    let lookup: Vec<HashMap<&str, i32>> = req
+        .samples
+        .iter()
+        .map(|s| {
+            s.readings
+                .iter()
+                .map(|r| (r.bssid.as_str(), r.rssi))
+                .collect()
+        })
+        .collect();
     radios
         .into_iter()
         .map(|(bssid, r)| {
@@ -282,7 +300,10 @@ fn measured_fields(req: &HeatmapRequest, grid: &Grid, near: &[Vec<(usize, f64)>]
                     }
                     let (mut sum, mut wsum) = (0.0f64, 0.0f64);
                     for &(j, w) in n {
-                        let v = lookup[j].get(bssid.as_str()).map(|v| *v as f32).unwrap_or(NOT_HEARD_DBM);
+                        let v = lookup[j]
+                            .get(bssid.as_str())
+                            .map(|v| *v as f32)
+                            .unwrap_or(NOT_HEARD_DBM);
                         sum += v as f64 * w;
                         wsum += w;
                     }
@@ -291,9 +312,16 @@ fn measured_fields(req: &HeatmapRequest, grid: &Grid, near: &[Vec<(usize, f64)>]
                 .collect();
             let band = r.band.or_else(|| Some(rf::band_from_channel(r.channel)));
             Field {
-                label: if r.ssid.is_empty() { bssid.clone() } else { format!("{} ({})", r.ssid, r.channel) },
+                label: if r.ssid.is_empty() {
+                    bssid.clone()
+                } else {
+                    format!("{} ({})", r.ssid, r.channel)
+                },
                 range: band.map(|b| rf::occupied_range(r.channel, b, r.width_mhz)),
-                noise: r.noise.map(|n| n as f32).unwrap_or_else(|| band.map(|b| b.typical_noise_dbm() as f32).unwrap_or(-95.0)),
+                noise: r
+                    .noise
+                    .map(|n| n as f32)
+                    .unwrap_or_else(|| band.map(|b| b.typical_noise_dbm() as f32).unwrap_or(-95.0)),
                 mine: matches_filter(&req.filter, &r.ssid, band),
                 radio: format!("{}/{}", &bssid[..bssid.len().min(14)], r.channel),
                 key: bssid,
@@ -306,8 +334,17 @@ fn measured_fields(req: &HeatmapRequest, grid: &Grid, near: &[Vec<(usize, f64)>]
 
 fn predicted_fields(req: &HeatmapRequest, grid: &Grid) -> Vec<Field> {
     let mpp = req.meters_per_px.unwrap_or(0.05);
-    let walls_m: Vec<Wall> =
-        req.walls.iter().map(|w| Wall { x1: w.x1 * mpp, y1: w.y1 * mpp, x2: w.x2 * mpp, y2: w.y2 * mpp, material: w.material }).collect();
+    let walls_m: Vec<Wall> = req
+        .walls
+        .iter()
+        .map(|w| Wall {
+            x1: w.x1 * mpp,
+            y1: w.y1 * mpp,
+            x2: w.x2 * mpp,
+            y2: w.y2 * mpp,
+            material: w.material,
+        })
+        .collect();
     let mut fields = Vec::new();
     for ap in &req.aps {
         for (ri, radio) in ap.radios.iter().enumerate().filter(|(_, r)| r.enabled) {
@@ -329,9 +366,18 @@ fn predicted_fields(req: &HeatmapRequest, grid: &Grid) -> Vec<Field> {
             fields.push(Field {
                 key: format!("{}#{}", ap.id, ri),
                 radio: format!("{}#{}", ap.id, ri),
-                label: format!("{} ({} GHz ch {})", ap.name, radio.band.label().trim_end_matches(" GHz"), radio.channel),
+                label: format!(
+                    "{} ({} GHz ch {})",
+                    ap.name,
+                    radio.band.label().trim_end_matches(" GHz"),
+                    radio.channel
+                ),
                 band: Some(radio.band),
-                range: Some(rf::occupied_range(radio.channel, radio.band, radio.width_mhz)),
+                range: Some(rf::occupied_range(
+                    radio.channel,
+                    radio.band,
+                    radio.width_mhz,
+                )),
                 noise: radio.band.typical_noise_dbm() as f32,
                 mine: true,
                 values,
@@ -366,7 +412,12 @@ pub fn heatmap(req: &HeatmapRequest) -> Heatmap {
 
     // Throughput is a scalar layer interpolated directly from samples.
     let throughput: Option<Vec<f32>> = (req.layer == Layer::Throughput).then(|| {
-        let with: Vec<Sample> = req.samples.iter().filter(|s| s.throughput_mbps.is_some()).cloned().collect();
+        let with: Vec<Sample> = req
+            .samples
+            .iter()
+            .filter(|s| s.throughput_mbps.is_some())
+            .cloned()
+            .collect();
         let reach_px = mpp.map(|m| req.reach_m / m).unwrap_or(req.width_px * 0.1);
         let near = neighbours(&grid, &with, reach_px, 6);
         near.iter()
@@ -374,7 +425,9 @@ pub fn heatmap(req: &HeatmapRequest) -> Heatmap {
                 if n.is_empty() {
                     return f32::NAN;
                 }
-                let (s, w) = n.iter().fold((0.0, 0.0), |(s, w), &(j, wt)| (s + with[j].throughput_mbps.unwrap() * wt, w + wt));
+                let (s, w) = n.iter().fold((0.0, 0.0), |(s, w), &(j, wt)| {
+                    (s + with[j].throughput_mbps.unwrap() * wt, w + wt)
+                });
                 (s / w) as f32
             })
             .collect()
@@ -391,7 +444,9 @@ pub fn heatmap(req: &HeatmapRequest) -> Heatmap {
             // Strongest "your" radio here, and the strongest *other* radio.
             let mut best: Option<&Field> = None;
             for f in &mine {
-                if f.values[i].is_finite() && best.map(|b| f.values[i] > b.values[i]).unwrap_or(true) {
+                if f.values[i].is_finite()
+                    && best.map(|b| f.values[i] > b.values[i]).unwrap_or(true)
+                {
                     best = Some(f);
                 }
             }
@@ -412,13 +467,19 @@ pub fn heatmap(req: &HeatmapRequest) -> Heatmap {
                     .fold(NOT_HEARD_DBM, f32::max),
                 Layer::Snr => best_v - best.noise,
                 Layer::ApCount => {
-                    let mut radios: Vec<&str> = mine.iter().filter(|f| f.values[i] >= threshold).map(|f| f.radio.as_str()).collect();
+                    let mut radios: Vec<&str> = mine
+                        .iter()
+                        .filter(|f| f.values[i] >= threshold)
+                        .map(|f| f.radio.as_str())
+                        .collect();
                     radios.sort_unstable();
                     radios.dedup();
                     radios.len() as f32
                 }
                 Layer::CoChannel => {
-                    let Some(range) = best.range else { return Some(0.0) };
+                    let Some(range) = best.range else {
+                        return Some(0.0);
+                    };
                     // Any radio (yours or a neighbour's) loud enough to defer to.
                     let mut radios: Vec<&str> = fields
                         .iter()
@@ -437,7 +498,11 @@ pub fn heatmap(req: &HeatmapRequest) -> Heatmap {
                 Layer::BestAp => {
                     let next = legend_index.len() as u32;
                     let idx = *legend_index.entry(best.radio.clone()).or_insert_with(|| {
-                        legend.push(LegendEntry { index: next, label: best.label.clone(), detail: best.key.clone() });
+                        legend.push(LegendEntry {
+                            index: next,
+                            label: best.label.clone(),
+                            detail: best.key.clone(),
+                        });
                         next
                     });
                     idx as f32
@@ -448,10 +513,25 @@ pub fn heatmap(req: &HeatmapRequest) -> Heatmap {
         .collect();
 
     let stats = stats(&values, req.layer, threshold, grid.cell, mpp);
-    Heatmap { cols: grid.cols, rows: grid.rows, cell_px: grid.cell, layer: req.layer, mode: req.mode, values, legend, stats }
+    Heatmap {
+        cols: grid.cols,
+        rows: grid.rows,
+        cell_px: grid.cell,
+        layer: req.layer,
+        mode: req.mode,
+        values,
+        legend,
+        stats,
+    }
 }
 
-fn stats(values: &[Option<f32>], layer: Layer, threshold: f32, cell_px: f64, mpp: Option<f64>) -> HeatmapStats {
+fn stats(
+    values: &[Option<f32>],
+    layer: Layer,
+    threshold: f32,
+    cell_px: f64,
+    mpp: Option<f64>,
+) -> HeatmapStats {
     let present: Vec<f32> = values.iter().flatten().copied().collect();
     if present.is_empty() {
         return HeatmapStats::default();
@@ -539,14 +619,21 @@ pub fn candidate_channels(band: Band, width_mhz: u32, allow_dfs: bool) -> Vec<u3
         (Band::B5, w) if w >= 160 => vec![36, 100, 149],
         (Band::B5, 80) => vec![36, 52, 100, 116, 132, 149],
         (Band::B5, 40) => vec![36, 44, 52, 60, 100, 108, 116, 124, 132, 140, 149, 157],
-        (Band::B5, _) => vec![36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165],
+        (Band::B5, _) => vec![
+            36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140,
+            144, 149, 153, 157, 161, 165,
+        ],
         (Band::B6, w) if w >= 320 => vec![1, 65, 129],
         (Band::B6, w) if w >= 160 => vec![1, 33, 65, 97, 129, 161, 193],
         (Band::B6, 80) => (0..14).map(|i| 1 + i * 16).collect(),
         (Band::B6, 40) => (0..29).map(|i| 1 + i * 8).collect(),
         (Band::B6, _) => (0..59).map(|i| 1 + i * 4).collect(),
     };
-    let filtered: Vec<u32> = list.iter().copied().filter(|c| allow_dfs || band != Band::B5 || !is_dfs(*c) || *c == 36).collect();
+    let filtered: Vec<u32> = list
+        .iter()
+        .copied()
+        .filter(|c| allow_dfs || band != Band::B5 || !is_dfs(*c) || *c == 36)
+        .collect();
     if filtered.len() >= 2 {
         filtered
     } else {
@@ -557,16 +644,37 @@ pub fn candidate_channels(band: Band, width_mhz: u32, allow_dfs: bool) -> Vec<u3
 /// Plans channels so APs that hear each other share as little airtime as possible.
 pub fn channel_plan(req: &ChannelPlanRequest) -> ChannelPlan {
     let mpp = req.meters_per_px.unwrap_or(0.05);
-    let walls_m: Vec<Wall> =
-        req.walls.iter().map(|w| Wall { x1: w.x1 * mpp, y1: w.y1 * mpp, x2: w.x2 * mpp, y2: w.y2 * mpp, material: w.material }).collect();
-    let aps: Vec<(&VirtualAp, Option<&VirtualRadio>)> =
-        req.aps.iter().map(|ap| (ap, ap.radios.iter().find(|r| r.band == req.band && r.enabled))).filter(|(_, r)| r.is_some()).collect();
+    let walls_m: Vec<Wall> = req
+        .walls
+        .iter()
+        .map(|w| Wall {
+            x1: w.x1 * mpp,
+            y1: w.y1 * mpp,
+            x2: w.x2 * mpp,
+            y2: w.y2 * mpp,
+            material: w.material,
+        })
+        .collect();
+    let aps: Vec<(&VirtualAp, Option<&VirtualRadio>)> = req
+        .aps
+        .iter()
+        .map(|ap| {
+            (
+                ap,
+                ap.radios.iter().find(|r| r.band == req.band && r.enabled),
+            )
+        })
+        .filter(|(_, r)| r.is_some())
+        .collect();
     let n = aps.len();
-    let freq = rf::channel_to_freq(match req.band {
-        Band::B24 => 6,
-        Band::B5 => 36,
-        Band::B6 => 37,
-    }, req.band);
+    let freq = rf::channel_to_freq(
+        match req.band {
+            Band::B24 => 6,
+            Band::B5 => 36,
+            Band::B6 => 37,
+        },
+        req.band,
+    );
     // Pairwise coupling: how loud AP j is at AP i (and vice versa), mapped to 0..1.
     let mut coupling = vec![vec![0.0f64; n]; n];
     for i in 0..n {
@@ -576,7 +684,12 @@ pub fn channel_plan(req: &ChannelPlanRequest) -> ChannelPlan {
             }
             let (a, ra) = aps[i];
             let (b, _) = aps[j];
-            let e = rf::Emitter { x: b.x * mpp, y: b.y * mpp, eirp_dbm: ra.unwrap().eirp_dbm, freq_mhz: freq };
+            let e = rf::Emitter {
+                x: b.x * mpp,
+                y: b.y * mpp,
+                eirp_dbm: ra.unwrap().eirp_dbm,
+                freq_mhz: freq,
+            };
             let rssi = rf::predict_rssi(&e, a.x * mpp, a.y * mpp, &walls_m);
             coupling[i][j] = ((rssi + 90.0) / 40.0).clamp(0.0, 1.0);
         }
@@ -586,7 +699,10 @@ pub fn channel_plan(req: &ChannelPlanRequest) -> ChannelPlan {
     let external_cost = |c: u32| -> f64 {
         req.external
             .iter()
-            .filter(|e| e.band == req.band && rf::overlaps(rf::occupied_range(e.channel, e.band, e.width_mhz), range(c)))
+            .filter(|e| {
+                e.band == req.band
+                    && rf::overlaps(rf::occupied_range(e.channel, e.band, e.width_mhz), range(c))
+            })
             .map(|e| ((e.rssi as f64 + 90.0) / 40.0).clamp(0.0, 1.0) * 0.6)
             .sum()
     };
@@ -650,14 +766,23 @@ pub fn channel_plan(req: &ChannelPlanRequest) -> ChannelPlan {
         }
     }
     let cost_after = cost(&assign).min(cost_before);
-    let final_assign = if cost(&assign) <= cost_before { assign } else { current.clone() };
+    let final_assign = if cost(&assign) <= cost_before {
+        assign
+    } else {
+        current.clone()
+    };
     ChannelPlan {
         band: req.band,
         width_mhz: req.width_mhz,
         assignments: aps
             .iter()
             .zip(final_assign)
-            .map(|((ap, r), to)| ChannelAssignment { ap_id: ap.id.clone(), ap_name: ap.name.clone(), from: r.map(|r| r.channel), to })
+            .map(|((ap, r), to)| ChannelAssignment {
+                ap_id: ap.id.clone(),
+                ap_name: ap.name.clone(),
+                from: r.map(|r| r.channel),
+                to,
+            })
             .collect(),
         cost_before,
         cost_after,
@@ -698,28 +823,55 @@ pub fn suggest_placement(req: &PlacementRequest) -> Vec<PlacementSuggestion> {
     let mut base_req = req.heatmap.clone();
     base_req.layer = Layer::Signal;
     let base = heatmap(&base_req);
-    let radio = req.radio.clone().unwrap_or(VirtualRadio { band: Band::B5, channel: 36, width_mhz: 80, eirp_dbm: 17.0, enabled: true });
+    let radio = req.radio.clone().unwrap_or(VirtualRadio {
+        band: Band::B5,
+        channel: 36,
+        width_mhz: 80,
+        eirp_dbm: 17.0,
+        enabled: true,
+    });
     let mpp = req.heatmap.meters_per_px.unwrap_or(0.05);
     let threshold = req.heatmap.threshold_dbm as f32;
     let walls_m: Vec<Wall> = req
         .heatmap
         .walls
         .iter()
-        .map(|w| Wall { x1: w.x1 * mpp, y1: w.y1 * mpp, x2: w.x2 * mpp, y2: w.y2 * mpp, material: w.material })
+        .map(|w| Wall {
+            x1: w.x1 * mpp,
+            y1: w.y1 * mpp,
+            x2: w.x2 * mpp,
+            y2: w.y2 * mpp,
+            material: w.material,
+        })
         .collect();
     // Evaluate on a coarser grid for speed.
-    let stride = ((base.cols * base.rows) as f64 / 4000.0).sqrt().ceil().max(1.0) as usize;
+    let stride = ((base.cols * base.rows) as f64 / 4000.0)
+        .sqrt()
+        .ceil()
+        .max(1.0) as usize;
+    // A plan with no APs yet has no signal anywhere: treat it as -95 dBm so the
+    // first AP still gets a suggested spot.
+    let empty = base.values.iter().all(Option::is_none);
     let cells: Vec<(f64, f64, f32)> = (0..base.rows)
         .step_by(stride)
         .flat_map(|r| (0..base.cols).step_by(stride).map(move |c| (r, c)))
         .filter_map(|(r, c)| {
-            base.values[r * base.cols + c].map(|v| ((c as f64 + 0.5) * base.cell_px, (r as f64 + 0.5) * base.cell_px, v))
+            base.values[r * base.cols + c]
+                .or(empty.then_some(-95.0))
+                .map(|v| {
+                    (
+                        (c as f64 + 0.5) * base.cell_px,
+                        (r as f64 + 0.5) * base.cell_px,
+                        v,
+                    )
+                })
         })
         .collect();
     if cells.is_empty() {
         return vec![];
     }
-    let covered_before = cells.iter().filter(|c| c.2 >= threshold).count() as f64 / cells.len() as f64;
+    let covered_before =
+        cells.iter().filter(|c| c.2 >= threshold).count() as f64 / cells.len() as f64;
     // Candidate positions: every ~2 m across the mapped area.
     let step_px = (2.0 / mpp).max(base.cell_px);
     let mut candidates = Vec::new();
@@ -738,7 +890,11 @@ pub fn suggest_placement(req: &PlacementRequest) -> Vec<PlacementSuggestion> {
     let points: Vec<(f64, f64)> = if !req.heatmap.samples.is_empty() {
         req.heatmap.samples.iter().map(|s| (s.x, s.y)).collect()
     } else {
-        req.heatmap.walls.iter().flat_map(|w| [(w.x1, w.y1), (w.x2, w.y2)]).collect()
+        req.heatmap
+            .walls
+            .iter()
+            .flat_map(|w| [(w.x1, w.y1), (w.x2, w.y2)])
+            .collect()
     };
     let inset = 0.5 / mpp;
     let bounds = if points.is_empty() {
@@ -755,23 +911,45 @@ pub fn suggest_placement(req: &PlacementRequest) -> Vec<PlacementSuggestion> {
     };
     let clearance = 0.4 / mpp;
     let near_wall = |x: f64, y: f64| {
-        req.heatmap.walls.iter().any(|w| point_segment_distance(x, y, w.x1, w.y1, w.x2, w.y2) < clearance)
+        req.heatmap
+            .walls
+            .iter()
+            .any(|w| point_segment_distance(x, y, w.x1, w.y1, w.x2, w.y2) < clearance)
     };
     let mut scored: Vec<PlacementSuggestion> = candidates
         .into_iter()
         // Only places inside the mapped area.
         .filter(|(x, y)| {
             let (c, r) = ((x / base.cell_px) as usize, (y / base.cell_px) as usize);
-            c < base.cols && r < base.rows && base.values[r * base.cols + c].is_some()
+            c < base.cols && r < base.rows && (empty || base.values[r * base.cols + c].is_some())
         })
-        .filter(|(x, y)| *x >= bounds.0 && *y >= bounds.1 && *x <= bounds.2 && *y <= bounds.3 && !near_wall(*x, *y))
+        .filter(|(x, y)| {
+            *x >= bounds.0
+                && *y >= bounds.1
+                && *x <= bounds.2
+                && *y <= bounds.3
+                && !near_wall(*x, *y)
+        })
         .map(|(x, y)| {
-            let e = rf::Emitter { x: x * mpp, y: y * mpp, eirp_dbm: radio.eirp_dbm, freq_mhz: freq };
+            let e = rf::Emitter {
+                x: x * mpp,
+                y: y * mpp,
+                eirp_dbm: radio.eirp_dbm,
+                freq_mhz: freq,
+            };
             let covered = cells
                 .iter()
-                .filter(|(cx, cy, v)| *v >= threshold || rf::predict_rssi(&e, cx * mpp, cy * mpp, &walls_m) as f32 >= threshold)
+                .filter(|(cx, cy, v)| {
+                    *v >= threshold
+                        || rf::predict_rssi(&e, cx * mpp, cy * mpp, &walls_m) as f32 >= threshold
+                })
                 .count();
-            PlacementSuggestion { x, y, coverage_before: covered_before, coverage_after: covered as f64 / cells.len() as f64 }
+            PlacementSuggestion {
+                x,
+                y,
+                coverage_before: covered_before,
+                coverage_after: covered as f64 / cells.len() as f64,
+            }
         })
         .collect();
     scored.sort_by(|a, b| b.coverage_after.partial_cmp(&a.coverage_after).unwrap());
@@ -779,7 +957,10 @@ pub fn suggest_placement(req: &PlacementRequest) -> Vec<PlacementSuggestion> {
     let min_sep = 6.0 / mpp;
     let mut out: Vec<PlacementSuggestion> = Vec::new();
     for s in scored {
-        if out.iter().all(|o| ((o.x - s.x).powi(2) + (o.y - s.y).powi(2)).sqrt() >= min_sep) {
+        if out
+            .iter()
+            .all(|o| ((o.x - s.x).powi(2) + (o.y - s.y).powi(2)).sqrt() >= min_sep)
+        {
             out.push(s);
         }
         if out.len() >= req.count {
@@ -792,7 +973,11 @@ pub fn suggest_placement(req: &PlacementRequest) -> Vec<PlacementSuggestion> {
 fn point_segment_distance(px: f64, py: f64, x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
     let (dx, dy) = (x2 - x1, y2 - y1);
     let len2 = dx * dx + dy * dy;
-    let t = if len2 > 0.0 { (((px - x1) * dx + (py - y1) * dy) / len2).clamp(0.0, 1.0) } else { 0.0 };
+    let t = if len2 > 0.0 {
+        (((px - x1) * dx + (py - y1) * dy) / len2).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
     ((px - (x1 + t * dx)).powi(2) + (py - (y1 + t * dy)).powi(2)).sqrt()
 }
 
@@ -873,7 +1058,10 @@ mod tests {
             samples,
             walls: plan.walls_px.clone(),
             aps: vec![],
-            filter: Filter { ssids: vec!["Acme-Office".into()], bands: vec![Band::B5] },
+            filter: Filter {
+                ssids: vec!["Acme-Office".into()],
+                bands: vec![Band::B5],
+            },
             threshold_dbm: -67,
             reach_m: 5.0,
         }
@@ -886,7 +1074,8 @@ mod tests {
         assert!(map.cols * map.rows <= 50_000);
         let at = |xm: f64, ym: f64| {
             let (px, py) = ((xm + MARGIN_M) * PX_PER_M, (ym + MARGIN_M) * PX_PER_M);
-            map.values[(py / map.cell_px) as usize * map.cols + (px / map.cell_px) as usize].unwrap()
+            map.values[(py / map.cell_px) as usize * map.cols + (px / map.cell_px) as usize]
+                .unwrap()
         };
         assert!(at(13.0, 6.0) > -55.0, "near AP-02: {}", at(13.0, 6.0));
         assert!(at(39.0, 23.0) < -67.0, "SE office: {}", at(39.0, 23.0));
@@ -897,7 +1086,13 @@ mod tests {
     #[test]
     fn layers_compute() {
         let (samples, plan) = walk_sim();
-        for layer in [Layer::SecondSignal, Layer::Snr, Layer::ApCount, Layer::CoChannel, Layer::BestAp] {
+        for layer in [
+            Layer::SecondSignal,
+            Layer::Snr,
+            Layer::ApCount,
+            Layer::CoChannel,
+            Layer::BestAp,
+        ] {
             let map = heatmap(&request(samples.clone(), &plan, layer));
             assert!(map.values.iter().flatten().count() > 1000, "{layer:?}");
         }
@@ -911,9 +1106,21 @@ mod tests {
             name: id.into(),
             x: (x + MARGIN_M) * PX_PER_M,
             y: (y + MARGIN_M) * PX_PER_M,
-            radios: vec![VirtualRadio { band: Band::B5, channel: ch, width_mhz: 80, eirp_dbm: 17.0, enabled: true }],
+            radios: vec![VirtualRadio {
+                band: Band::B5,
+                channel: ch,
+                width_mhz: 80,
+                eirp_dbm: 17.0,
+                enabled: true,
+            }],
         };
-        vec![ap("A", 5.0, 5.0, 36), ap("B", 13.0, 6.0, 36), ap("C", 36.0, 4.0, 36), ap("D", 9.0, 21.0, 36), ap("E", 25.0, 13.0, 36)]
+        vec![
+            ap("A", 5.0, 5.0, 36),
+            ap("B", 13.0, 6.0, 36),
+            ap("C", 36.0, 4.0, 36),
+            ap("D", 9.0, 21.0, 36),
+            ap("E", 25.0, 13.0, 36),
+        ]
     }
 
     #[test]
@@ -932,14 +1139,19 @@ mod tests {
         };
         let result = channel_plan(&req);
         assert!(result.cost_after < result.cost_before);
-        let chans: std::collections::HashSet<u32> = result.assignments.iter().map(|a| a.to).collect();
+        let chans: std::collections::HashSet<u32> =
+            result.assignments.iter().map(|a| a.to).collect();
         assert!(chans.len() >= 4, "{chans:?}");
     }
 
     #[test]
     fn placement_targets_the_south_east() {
         let (samples, plan) = walk_sim();
-        let req = PlacementRequest { heatmap: request(samples, &plan, Layer::Signal), radio: None, count: 3 };
+        let req = PlacementRequest {
+            heatmap: request(samples, &plan, Layer::Signal),
+            radio: None,
+            count: 3,
+        };
         let out = suggest_placement(&req);
         assert!(!out.is_empty());
         let best = &out[0];
@@ -947,6 +1159,21 @@ mod tests {
         let ym = best.y / PX_PER_M - MARGIN_M;
         assert!(xm > 30.0 && ym > 14.0, "suggested ({xm:.1}, {ym:.1})");
         assert!(best.coverage_after > best.coverage_before);
+    }
+
+    #[test]
+    fn placement_works_on_an_empty_plan() {
+        let (_, plan) = walk_sim();
+        let mut heatmap = request(vec![], &plan, Layer::Signal);
+        heatmap.mode = Mode::Predicted;
+        heatmap.aps = vec![];
+        let out = suggest_placement(&PlacementRequest {
+            heatmap,
+            radio: None,
+            count: 1,
+        });
+        assert!(!out.is_empty());
+        assert!(out[0].coverage_after > out[0].coverage_before);
     }
 
     #[test]

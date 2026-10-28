@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Gauge, Play, Square, Network } from "lucide-react";
-import { call } from "../../api";
+import { call, type CallError } from "../../api";
 import { useApp } from "../../store";
 import { fmtNumber, translateMaybe, useLang, useT, type Key } from "../../i18n";
 import type { LatencyStats, PerfRun } from "../../types";
 import { useJob } from "../../lib/useJob";
+import { peerErrorKey } from "../../lib/peer";
 import { Badge, Intro, Notice, Panel, Progress, Sparkline } from "../../components/ui";
 import { TimeChart } from "../../components/TimeChart";
 
@@ -154,23 +155,30 @@ function LatencyTable({ rows }: { rows: LatencyStats[] }) {
   );
 }
 
+type PeerStatus = { listening: boolean; addresses: string[]; code: string | null; expiresMs: number | null; error: string | null };
+
 function PeerPanel() {
   const t = useT();
   const lang = useLang();
-  const [status, setStatus] = useState<{ listening: boolean; addresses: string[]; error: string | null } | null>(null);
+  const [status, setStatus] = useState<PeerStatus | null>(null);
   const [host, setHost] = useState("");
+  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ downloadMbps: number; uploadMbps: number } | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Show the current listener (it may have been enabled before, or switched itself off).
+  useEffect(() => {
+    call<PeerStatus>("perf.peerServer", {}).then(setStatus).catch(() => {});
+  }, []);
   const toggle = async (enable: boolean) => setStatus(await call("perf.peerServer", { enable }));
   const test = async () => {
     setBusy(true);
     setErr(null);
     setResult(null);
     try {
-      setResult(await call("perf.peerTest", { host: host.trim() }));
-    } catch {
-      setErr(t("perf.peer.unreachable"));
+      setResult(await call("perf.peerTest", { host: host.trim(), code }));
+    } catch (e) {
+      setErr(t(peerErrorKey((e as CallError).code)));
     } finally {
       setBusy(false);
     }
@@ -185,11 +193,22 @@ function PeerPanel() {
           <input type="checkbox" checked={!!status?.listening} onChange={(e) => toggle(e.target.checked)} />
           {t("perf.peer.accept")}
         </label>
-        {status?.listening && <div className="small">{t("perf.peer.listening", { addresses: status.addresses.join(", ") })}</div>}
+        {status?.listening && (
+          <div className="small">
+            {t("perf.peer.listening", { addresses: status.addresses.join(", ") })}
+            {status.code && (
+              <div className="peer-code">
+                {t("perf.peer.codeIs")} <b>{status.code.slice(0, 3)} {status.code.slice(3)}</b>
+              </div>
+            )}
+            {status.expiresMs && <div className="muted">{t("perf.peer.autoOff", { time: new Date(status.expiresMs).toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" }) })}</div>}
+          </div>
+        )}
         {status?.error && <Notice tone="warn">{status.error}</Notice>}
         <div className="row">
-          <input className="input" placeholder={t("perf.peer.host")} aria-label={t("perf.peer.host")} value={host} onChange={(e) => setHost(e.target.value)} style={{ width: 220 }} />
-          <button className="btn" disabled={!host.trim() || busy} onClick={test}>
+          <input className="input" placeholder={t("perf.peer.host")} aria-label={t("perf.peer.host")} value={host} onChange={(e) => setHost(e.target.value)} style={{ width: 200 }} />
+          <input className="input" inputMode="numeric" placeholder={t("perf.peer.code")} aria-label={t("perf.peer.code")} value={code} onChange={(e) => setCode(e.target.value)} style={{ width: 120 }} />
+          <button className="btn" disabled={!host.trim() || code.replace(/\D/g, "").length !== 6 || busy} onClick={test}>
             <Network size={15} />
             {t("perf.peer.run")}
           </button>
@@ -281,6 +300,7 @@ export function PerformanceModule() {
         controls
       )}
       {error && <Notice tone="crit">{error}</Notice>}
+      {run?.error && <Notice tone="crit">{translateMaybe(lang, `perf.error.${run.error}`, run.error)}</Notice>}
       {run?.speedError === "consentRequired" && <Notice tone="warn">{t("perf.consent.required")}</Notice>}
       {run?.speedError && run.speedError !== "consentRequired" && run.speedError !== "cancelled" && (
         <Notice tone="warn">{t("perf.speed.failed", { detail: run.speedError })}</Notice>

@@ -9,14 +9,20 @@ use std::time::Duration;
 
 const T: Duration = Duration::from_secs(8);
 
-pub fn scan() -> ApiResult<ScanResult> {
+pub fn scan(trigger: bool) -> ApiResult<ScanResult> {
     let ifaces = wifi_interfaces();
     if ifaces.is_empty() {
         // No `iw` or no wireless device: try NetworkManager directly.
-        return nmcli_scan();
+        return nmcli_scan(trigger);
     }
     // Ask NetworkManager for a fresh scan (unprivileged); `iw scan trigger` needs root.
-    let _ = run_tool("nmcli", &["device", "wifi", "rescan"], Duration::from_secs(3));
+    if trigger {
+        let _ = run_tool(
+            "nmcli",
+            &["device", "wifi", "rescan"],
+            Duration::from_secs(3),
+        );
+    }
     let mut networks = Vec::new();
     let mut interfaces = Vec::new();
     for name in &ifaces {
@@ -27,12 +33,18 @@ pub fn scan() -> ApiResult<ScanResult> {
         interfaces.push(parse_iw_link(name, &link));
     }
     if networks.is_empty() {
-        if let Ok(mut nm) = nmcli_scan() {
+        if let Ok(mut nm) = nmcli_scan(false) {
             nm.interfaces = interfaces;
             return Ok(nm);
         }
     }
-    Ok(ScanResult { source: ScanSource::LinuxIw, interfaces, networks, timestamp_ms: now_ms(), notices: vec![] })
+    Ok(ScanResult {
+        source: ScanSource::LinuxIw,
+        interfaces,
+        networks,
+        timestamp_ms: now_ms(),
+        notices: vec![],
+    })
 }
 
 fn wifi_interfaces() -> Vec<String> {
@@ -92,12 +104,19 @@ pub(crate) fn parse_iw_scan(out: &str) -> Vec<Bss> {
         if let Some(rest) = raw.strip_prefix("BSS ") {
             finish(cur.take(), &mut result);
             let mac = rest.split(['(', ' ']).next().unwrap_or("").to_lowercase();
-            let bss = Bss { bssid: mac, connected: rest.contains("associated"), last_seen_ms: now_ms(), ..Default::default() };
+            let bss = Bss {
+                bssid: mac,
+                connected: rest.contains("associated"),
+                last_seen_ms: now_ms(),
+                ..Default::default()
+            };
             cur = Some((bss, IeInfo::default(), false));
             section = "";
             continue;
         }
-        let Some((bss, info, privacy)) = cur.as_mut() else { continue };
+        let Some((bss, info, privacy)) = cur.as_mut() else {
+            continue;
+        };
         if !raw.starts_with("\t\t") && !raw.starts_with("\t *") {
             section = "";
         }
@@ -107,16 +126,39 @@ pub(crate) fn parse_iw_scan(out: &str) -> Vec<Bss> {
                 bss.channel = ch;
                 bss.band = Some(band);
             }
+        } else if let Some(v) = line.strip_prefix("last seen:") {
+            let ago: u64 = v
+                .trim()
+                .trim_end_matches("ms ago")
+                .trim()
+                .parse()
+                .unwrap_or(0);
+            bss.last_seen_ms = now_ms().saturating_sub(ago);
         } else if let Some(v) = line.strip_prefix("signal:") {
-            bss.rssi = v.trim().split_whitespace().next().and_then(|s| s.parse::<f64>().ok()).map(|f| f.round() as i32).unwrap_or(-100);
+            bss.rssi = v
+                .trim()
+                .split_whitespace()
+                .next()
+                .and_then(|s| s.parse::<f64>().ok())
+                .map(|f| f.round() as i32)
+                .unwrap_or(-100);
         } else if let Some(v) = line.strip_prefix("SSID:") {
             let ssid = v.trim();
-            bss.hidden = ssid.is_empty() || ssid.chars().all(|c| c == '\0') || ssid.starts_with("\\x00");
-            bss.ssid = if bss.hidden { String::new() } else { ssid.to_string() };
+            bss.hidden =
+                ssid.is_empty() || ssid.chars().all(|c| c == '\0') || ssid.starts_with("\\x00");
+            bss.ssid = if bss.hidden {
+                String::new()
+            } else {
+                ssid.to_string()
+            };
         } else if let Some(v) = line.strip_prefix("capability:") {
             *privacy = v.contains("Privacy");
         } else if let Some(v) = line.strip_prefix("beacon interval:") {
-            bss.beacon_interval = v.trim().split_whitespace().next().and_then(|s| s.parse().ok());
+            bss.beacon_interval = v
+                .trim()
+                .split_whitespace()
+                .next()
+                .and_then(|s| s.parse().ok());
         } else if let Some(v) = line.strip_prefix("Country:") {
             bss.country = v.split_whitespace().next().map(str::to_string);
         } else if line.starts_with("RSN:") {
@@ -151,16 +193,21 @@ pub(crate) fn parse_iw_scan(out: &str) -> Vec<Bss> {
             match section {
                 "rsn" | "wpa" => {
                     if let Some(v) = item.strip_prefix("Authentication suites:") {
-                        let akms: Vec<u8> = v.split_whitespace().filter_map(akm_from_name).collect();
+                        let akms: Vec<u8> =
+                            v.split_whitespace().filter_map(akm_from_name).collect();
                         if section == "rsn" {
                             info.rsn_akms = akms;
                         }
                         // iw prints multi-word suite names separated by spaces;
                         // catch the 802.1X family explicitly.
                         if v.contains("802.1X") && section == "rsn" && !info.rsn_akms.contains(&1) {
-                            info.rsn_akms.push(if v.contains("FT/IEEE") { 3 } else { 1 });
+                            info.rsn_akms
+                                .push(if v.contains("FT/IEEE") { 3 } else { 1 });
                         }
-                    } else if let Some(v) = item.strip_prefix("Pairwise ciphers:").or(item.strip_prefix("Group cipher:")) {
+                    } else if let Some(v) = item
+                        .strip_prefix("Pairwise ciphers:")
+                        .or(item.strip_prefix("Group cipher:"))
+                    {
                         let tkip = v.contains("TKIP");
                         if section == "rsn" && tkip {
                             info.rsn_ciphers.push(2);
@@ -171,7 +218,9 @@ pub(crate) fn parse_iw_scan(out: &str) -> Vec<Bss> {
                     } else if let Some(v) = item.strip_prefix("Capabilities:") {
                         if section == "rsn" {
                             let hex = v.rsplit("(0x").next().and_then(|h| h.strip_suffix(')'));
-                            info.rsn_caps = hex.and_then(|h| u16::from_str_radix(h, 16).ok()).or(info.rsn_caps);
+                            info.rsn_caps = hex
+                                .and_then(|h| u16::from_str_radix(h, 16).ok())
+                                .or(info.rsn_caps);
                         }
                     }
                 }
@@ -179,7 +228,11 @@ pub(crate) fn parse_iw_scan(out: &str) -> Vec<Bss> {
                     if let Some(v) = item.strip_prefix("station count:") {
                         bss.station_count = v.trim().parse().ok();
                     } else if let Some(v) = item.strip_prefix("channel utilisation:") {
-                        let n: Option<u32> = v.trim().split('/').next().and_then(|s| s.trim().parse().ok());
+                        let n: Option<u32> = v
+                            .trim()
+                            .split('/')
+                            .next()
+                            .and_then(|s| s.trim().parse().ok());
                         bss.utilization_pct = n.map(|n| ((n * 100 + 127) / 255) as u8);
                     }
                 }
@@ -322,7 +375,11 @@ pub(crate) fn parse_nmcli(out: &str) -> (Vec<Bss>, Option<WifiInterface>) {
             continue;
         }
         let in_use = f[0].trim() == "*";
-        let freq: u32 = f[4].split_whitespace().next().and_then(|s| s.parse().ok()).unwrap_or(0);
+        let freq: u32 = f[4]
+            .split_whitespace()
+            .next()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
         let (channel, band) = rf::freq_to_channel(freq)
             .map(|(c, b)| (c, Some(b)))
             .unwrap_or_else(|| (f[3].trim().parse().unwrap_or(0), None));
@@ -365,10 +422,19 @@ pub(crate) fn parse_nmcli(out: &str) -> (Vec<Bss>, Option<WifiInterface>) {
     (networks, iface)
 }
 
-fn nmcli_scan() -> ApiResult<ScanResult> {
+fn nmcli_scan(trigger: bool) -> ApiResult<ScanResult> {
     let out = run_tool(
         "nmcli",
-        &["-t", "-f", "IN-USE,BSSID,SSID,CHAN,FREQ,RATE,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan", "auto"],
+        &[
+            "-t",
+            "-f",
+            "IN-USE,BSSID,SSID,CHAN,FREQ,RATE,SIGNAL,SECURITY",
+            "device",
+            "wifi",
+            "list",
+            "--rescan",
+            if trigger { "auto" } else { "no" },
+        ],
         T,
     )
     .map_err(|e| ApiError::new("noWifiTool", e.to_string()))?;
@@ -378,7 +444,10 @@ fn nmcli_scan() -> ApiResult<ScanResult> {
         interfaces: iface.into_iter().collect(),
         networks,
         timestamp_ms: now_ms(),
-        notices: vec![Notice { code: "approximateSignal".into(), detail: String::new() }],
+        notices: vec![Notice {
+            code: "approximateSignal".into(),
+            detail: String::new(),
+        }],
     })
 }
 

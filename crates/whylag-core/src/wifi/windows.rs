@@ -19,6 +19,8 @@ use windows_sys::Win32::NetworkManagement::WiFi::*;
 
 const ERROR_SUCCESS: u32 = 0;
 const ERROR_ACCESS_DENIED: u32 = 5;
+/// Cached BSS entries older than this are dropped.
+const STALE_MS: u64 = 60_000;
 const ERROR_SERVICE_NOT_ACTIVE: u32 = 1062;
 
 /// Owned WLAN client handle, closed on drop.
@@ -31,8 +33,14 @@ impl Client {
         let rc = unsafe { WlanOpenHandle(2, ptr::null(), &mut negotiated, &mut handle) };
         match rc {
             ERROR_SUCCESS => Ok(Client(handle)),
-            ERROR_SERVICE_NOT_ACTIVE => Err(ApiError::new("noWifiAdapter", "WLAN AutoConfig service is not running")),
-            other => Err(ApiError::new("wlanApi", format!("WlanOpenHandle failed: {other}"))),
+            ERROR_SERVICE_NOT_ACTIVE => Err(ApiError::new(
+                "noWifiAdapter",
+                "WLAN AutoConfig service is not running",
+            )),
+            other => Err(ApiError::new(
+                "wlanApi",
+                format!("WlanOpenHandle failed: {other}"),
+            )),
         }
     }
 }
@@ -59,7 +67,17 @@ impl<T> Drop for WlanMem<T> {
 fn guid_string(g: &GUID) -> String {
     format!(
         "{{{:08X}-{:04X}-{:04X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}}}",
-        g.data1, g.data2, g.data3, g.data4[0], g.data4[1], g.data4[2], g.data4[3], g.data4[4], g.data4[5], g.data4[6], g.data4[7]
+        g.data1,
+        g.data2,
+        g.data3,
+        g.data4[0],
+        g.data4[1],
+        g.data4[2],
+        g.data4[3],
+        g.data4[4],
+        g.data4[5],
+        g.data4[6],
+        g.data4[7]
     )
 }
 
@@ -108,7 +126,15 @@ unsafe fn query<T: Copy>(client: &Client, guid: &GUID, opcode: WLAN_INTF_OPCODE)
     let mut size = 0u32;
     let mut data: *mut c_void = ptr::null_mut();
     let mut value_type: WLAN_OPCODE_VALUE_TYPE = 0;
-    let rc = WlanQueryInterface(client.0, guid, opcode, ptr::null(), &mut size, &mut data, &mut value_type);
+    let rc = WlanQueryInterface(
+        client.0,
+        guid,
+        opcode,
+        ptr::null(),
+        &mut size,
+        &mut data,
+        &mut value_type,
+    );
     if rc != ERROR_SUCCESS || data.is_null() {
         return None;
     }
@@ -126,13 +152,20 @@ unsafe fn interface_info(client: &Client, info: &WLAN_INTERFACE_INFO) -> WifiInt
         id: guid_string(&guid),
         name: "Wi-Fi".into(),
         description: wide_to_string(&info.strInterfaceDescription),
-        state: if connected { "connected" } else { "disconnected" }.into(),
+        state: if connected {
+            "connected"
+        } else {
+            "disconnected"
+        }
+        .into(),
         ..Default::default()
     };
     if !connected {
         return iface;
     }
-    if let Some(conn) = query::<WLAN_CONNECTION_ATTRIBUTES>(client, &guid, wlan_intf_opcode_current_connection) {
+    if let Some(conn) =
+        query::<WLAN_CONNECTION_ATTRIBUTES>(client, &guid, wlan_intf_opcode_current_connection)
+    {
         let assoc = conn.wlanAssociationAttributes;
         let sec = conn.wlanSecurityAttributes;
         iface.ssid = Some(ssid_to_string(&assoc.dot11Ssid).0);
@@ -145,7 +178,11 @@ unsafe fn interface_info(client: &Client, info: &WLAN_INTERFACE_INFO) -> WifiInt
             iface.phy = Some(name.into());
             iface.wifi_gen = gen;
         }
-        iface.security = Some(security_from_auth(sec.dot11AuthAlgorithm, sec.bSecurityEnabled != 0, sec.bOneXEnabled != 0));
+        iface.security = Some(security_from_auth(
+            sec.dot11AuthAlgorithm,
+            sec.bSecurityEnabled != 0,
+            sec.bOneXEnabled != 0,
+        ));
     }
     iface.rssi = query::<i32>(client, &guid, wlan_intf_opcode_rssi);
     iface.channel = query::<u32>(client, &guid, wlan_intf_opcode_channel_number);
@@ -154,7 +191,15 @@ unsafe fn interface_info(client: &Client, info: &WLAN_INTERFACE_INFO) -> WifiInt
 
 unsafe fn bss_list(client: &Client, guid: &GUID) -> Result<Vec<Bss>, u32> {
     let mut list: *mut WLAN_BSS_LIST = ptr::null_mut();
-    let rc = WlanGetNetworkBssList(client.0, guid, ptr::null(), dot11_BSS_type_any, 0, ptr::null(), &mut list);
+    let rc = WlanGetNetworkBssList(
+        client.0,
+        guid,
+        ptr::null(),
+        dot11_BSS_type_any,
+        0,
+        ptr::null(),
+        &mut list,
+    );
     if rc != ERROR_SUCCESS {
         return Err(rc);
     }
@@ -162,15 +207,32 @@ unsafe fn bss_list(client: &Client, guid: &GUID) -> Result<Vec<Bss>, u32> {
     let count = (*mem.0).dwNumberOfItems as usize;
     let first = ptr::addr_of!((*mem.0).wlanBssEntries) as *const WLAN_BSS_ENTRY;
     let now = now_ms();
+    // FILETIME (100 ns since 1601) of "now", to age cached entries.
+    let now_ft = now * 10_000 + 116_444_736_000_000_000;
     let mut out = Vec::with_capacity(count);
     for i in 0..count {
         let entry_ptr = first.add(i);
         let entry = ptr::read_unaligned(entry_ptr);
-        let ies = std::slice::from_raw_parts((entry_ptr as *const u8).add(entry.ulIeOffset as usize), entry.ulIeSize as usize);
+        // When the last beacon or probe response was received. Entries the
+        // adapter has not heard for a while are stale cache, not live APs.
+        let age_ms = if entry.ullHostTimestamp > 0 && entry.ullHostTimestamp <= now_ft {
+            (now_ft - entry.ullHostTimestamp) / 10_000
+        } else {
+            0
+        };
+        if age_ms > STALE_MS {
+            continue;
+        }
+        let ies = std::slice::from_raw_parts(
+            (entry_ptr as *const u8).add(entry.ulIeOffset as usize),
+            entry.ulIeSize as usize,
+        );
         let info = ie::parse(ies);
         let (ssid, hidden) = ssid_to_string(&entry.dot11Ssid);
         let freq = entry.ulChCenterFrequency / 1000;
-        let (channel, band) = rf::freq_to_channel(freq).map(|(c, b)| (c, Some(b))).unwrap_or((info.ds_channel.unwrap_or(0), None));
+        let (channel, band) = rf::freq_to_channel(freq)
+            .map(|(c, b)| (c, Some(b)))
+            .unwrap_or((info.ds_channel.unwrap_or(0), None));
         let privacy = entry.usCapabilityInformation & 0x0010 != 0;
         let security = info.security(privacy);
         let phy_gen = phy_name(entry.dot11BssPhyType).and_then(|(_, g)| g);
@@ -196,18 +258,21 @@ unsafe fn bss_list(client: &Client, guid: &GUID) -> Result<Vec<Bss>, u32> {
             vendor: None,
             connected: false,
             beacon_interval: Some(entry.usBeaconPeriod),
-            last_seen_ms: now,
+            last_seen_ms: now.saturating_sub(age_ms),
         });
     }
     Ok(out)
 }
 
-pub fn scan() -> ApiResult<ScanResult> {
+pub fn scan(trigger: bool) -> ApiResult<ScanResult> {
     let client = Client::open()?;
     let mut list: *mut WLAN_INTERFACE_INFO_LIST = ptr::null_mut();
     let rc = unsafe { WlanEnumInterfaces(client.0, ptr::null(), &mut list) };
     if rc != ERROR_SUCCESS {
-        return Err(ApiError::new("wlanApi", format!("WlanEnumInterfaces failed: {rc}")));
+        return Err(ApiError::new(
+            "wlanApi",
+            format!("WlanEnumInterfaces failed: {rc}"),
+        ));
     }
     let mem = WlanMem(list);
     let mut interfaces = Vec::new();
@@ -219,24 +284,44 @@ pub fn scan() -> ApiResult<ScanResult> {
         for i in 0..count {
             let info = ptr::read_unaligned(first.add(i));
             let guid = info.InterfaceGuid;
-            // Request a fresh scan; results land in the cache within ~4 s and
-            // the UI polls, so we read the current cache straight away.
-            WlanScan(client.0, &guid, ptr::null(), ptr::null(), ptr::null());
+            // Request a fresh scan only when asked: results land in the cache
+            // within ~4 s, and the UI polls, so we read the cache straight away.
+            if trigger {
+                WlanScan(client.0, &guid, ptr::null(), ptr::null(), ptr::null());
+            }
             interfaces.push(interface_info(&client, &info));
             match bss_list(&client, &guid) {
                 Ok(list) => networks.extend(list),
                 Err(ERROR_ACCESS_DENIED) => {
-                    notices.push(Notice { code: "locationPermission".into(), detail: String::new() });
+                    notices.push(Notice {
+                        code: "locationPermission".into(),
+                        detail: String::new(),
+                    });
                 }
-                Err(rc) => notices.push(Notice { code: "wlanApi".into(), detail: format!("WlanGetNetworkBssList: {rc}") }),
+                Err(rc) => notices.push(Notice {
+                    code: "wlanApi".into(),
+                    detail: format!("WlanGetNetworkBssList: {rc}"),
+                }),
             }
         }
     }
     if interfaces.is_empty() {
-        return Err(ApiError::new("noWifiAdapter", "no wireless interface found"));
+        return Err(ApiError::new(
+            "noWifiAdapter",
+            "no wireless interface found",
+        ));
     }
     if networks.is_empty() && notices.iter().any(|n| n.code == "locationPermission") {
-        return Err(ApiError::new("locationPermission", "Windows location access is off for desktop apps"));
+        return Err(ApiError::new(
+            "locationPermission",
+            "Windows location access is off for desktop apps",
+        ));
     }
-    Ok(ScanResult { source: ScanSource::WindowsNative, interfaces, networks, timestamp_ms: now_ms(), notices })
+    Ok(ScanResult {
+        source: ScanSource::WindowsNative,
+        interfaces,
+        networks,
+        timestamp_ms: now_ms(),
+        notices,
+    })
 }

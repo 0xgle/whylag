@@ -19,6 +19,8 @@ pub struct IeInfo {
     pub eht: bool,
     pub width_mhz: u32,
     pub rsn_akms: Vec<u8>,
+    /// An RSN element was present, even if we could not decode its AKMs.
+    pub rsn_present: bool,
     pub rsn_ciphers: Vec<u8>,
     pub rsn_caps: Option<u16>,
     pub wpa1: bool,
@@ -57,6 +59,7 @@ fn parse_rsn(body: &[u8], info: &mut IeInfo) {
     if body.len() < 6 {
         return;
     }
+    info.rsn_present = true;
     let mut pos = 2;
     if let Some(g) = body.get(pos..pos + 4) {
         if g[..3] == OUI_IEEE {
@@ -64,9 +67,19 @@ fn parse_rsn(body: &[u8], info: &mut IeInfo) {
         }
     }
     pos += 4;
-    let Some((pairwise, next)) = suite_list(body, pos, OUI_IEEE) else { return };
+    // Lists may be omitted from the end of the element; 802.11 then defines
+    // CCMP as the pairwise cipher and 802.1X as the AKM. A truncated RSN
+    // element still means WPA2 or later, never WEP.
+    let Some((pairwise, next)) = suite_list(body, pos, OUI_IEEE) else {
+        info.rsn_ciphers.push(4);
+        info.rsn_akms = vec![1];
+        return;
+    };
     info.rsn_ciphers.extend(pairwise);
-    let Some((akms, next)) = suite_list(body, next, OUI_IEEE) else { return };
+    let Some((akms, next)) = suite_list(body, next, OUI_IEEE) else {
+        info.rsn_akms = vec![1];
+        return;
+    };
     info.rsn_akms = akms;
     info.rsn_caps = u16le(body, next);
 }
@@ -164,12 +177,21 @@ pub fn parse(blob: &[u8]) -> IeInfo {
     while pos + 2 <= blob.len() {
         let id = blob[pos];
         let len = blob[pos + 1] as usize;
-        let Some(body) = blob.get(pos + 2..pos + 2 + len) else { break };
+        let Some(body) = blob.get(pos + 2..pos + 2 + len) else {
+            break;
+        };
         match id {
             0 => info.ssid = Some(body.to_vec()),
             3 => info.ds_channel = body.first().map(|c| *c as u32),
             7 if body.len() >= 2 => {
-                info.country = Some(body[..2].iter().map(|c| *c as char).collect::<String>().trim().to_string())
+                info.country = Some(
+                    body[..2]
+                        .iter()
+                        .map(|c| *c as char)
+                        .collect::<String>()
+                        .trim()
+                        .to_string(),
+                )
             }
             11 if body.len() >= 3 => {
                 info.station_count = u16le(body, 0);
@@ -236,6 +258,9 @@ impl IeInfo {
                 Security::Unknown
             };
         }
+        if self.rsn_present {
+            return Security::Unknown;
+        }
         if self.wpa1 {
             return Security::Wpa;
         }
@@ -248,7 +273,10 @@ impl IeInfo {
 
     pub fn weak_cipher(&self, security: Security) -> bool {
         // Cipher suite 2 = TKIP (both IEEE and Microsoft OUIs); WEP is weak by definition.
-        security == Security::Wep || security == Security::Wpa || self.rsn_ciphers.contains(&2) || self.wpa1_ciphers.contains(&2)
+        security == Security::Wep
+            || security == Security::Wpa
+            || self.rsn_ciphers.contains(&2)
+            || self.wpa1_ciphers.contains(&2)
     }
 
     pub fn pmf(&self) -> Pmf {
@@ -308,6 +336,17 @@ mod tests {
     }
 
     #[test]
+    fn truncated_rsn_is_not_wep() {
+        // Version and group cipher only: defaults apply (CCMP, 802.1X).
+        let info = parse(&ie(48, &[1, 0, 0x00, 0x0f, 0xac, 4]));
+        assert_eq!(info.security(true), Security::Wpa2Enterprise);
+        // Only vendor AKMs we do not know.
+        let mut b = vec![1, 0, 0x00, 0x0f, 0xac, 4, 1, 0, 0x00, 0x0f, 0xac, 4, 1, 0];
+        b.extend_from_slice(&[0x00, 0x40, 0x96, 0x01, 0, 0]);
+        assert_eq!(parse(&ie(48, &b)).security(true), Security::Unknown);
+    }
+
+    #[test]
     fn wpa2_psk_ht40() {
         let mut blob = ie(0, b"Office");
         blob.extend(ie(3, &[6]));
@@ -344,13 +383,22 @@ mod tests {
         blob.extend(ie(127, &[0, 0, 0x08]));
         let info = parse(&blob);
         assert_eq!(info.security(true), Security::Wpa2Enterprise);
-        assert_eq!(info.roaming(), Roaming { k: true, v: true, r: true });
+        assert_eq!(
+            info.roaming(),
+            Roaming {
+                k: true,
+                v: true,
+                r: true
+            }
+        );
         assert_eq!(info.pmf(), Pmf::Disabled);
     }
 
     #[test]
     fn legacy_wpa_tkip_wps_and_wep() {
-        let mut wpa = vec![0x00, 0x50, 0xf2, 1, 1, 0, 0x00, 0x50, 0xf2, 2, 1, 0, 0x00, 0x50, 0xf2, 2];
+        let mut wpa = vec![
+            0x00, 0x50, 0xf2, 1, 1, 0, 0x00, 0x50, 0xf2, 2, 1, 0, 0x00, 0x50, 0xf2, 2,
+        ];
         wpa.extend_from_slice(&[1, 0, 0x00, 0x50, 0xf2, 2]);
         let mut blob = ie(221, &wpa);
         blob.extend(ie(221, &[0x00, 0x50, 0xf2, 4, 0x10, 0x4a]));

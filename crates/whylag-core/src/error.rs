@@ -12,7 +12,10 @@ pub struct ApiError {
 
 impl ApiError {
     pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { code: code.into(), message: message.into() }
+        Self {
+            code: code.into(),
+            message: message.into(),
+        }
     }
 
     pub fn bad_params(message: impl Into<String>) -> Self {

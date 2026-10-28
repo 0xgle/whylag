@@ -20,7 +20,12 @@ pub enum Value {
 impl Value {
     pub fn as_text(&self) -> Option<String> {
         match self {
-            Value::Str(b) => Some(String::from_utf8_lossy(b).trim_matches(char::from(0)).trim().to_string()),
+            Value::Str(b) => Some(
+                String::from_utf8_lossy(b)
+                    .trim_matches(char::from(0))
+                    .trim()
+                    .to_string(),
+            ),
             Value::Int(i) => Some(i.to_string()),
             Value::Counter(c) | Value::Ticks(c) => Some(c.to_string()),
             Value::Ip(a) => Some(format!("{}.{}.{}.{}", a[0], a[1], a[2], a[3])),
@@ -31,18 +36,28 @@ impl Value {
 }
 
 pub fn parse_oid(s: &str) -> Vec<u32> {
-    s.trim_start_matches('.').split('.').filter_map(|p| p.parse().ok()).collect()
+    s.trim_start_matches('.')
+        .split('.')
+        .filter_map(|p| p.parse().ok())
+        .collect()
 }
 
 pub fn oid_string(o: &[u32]) -> String {
-    o.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(".")
+    o.iter()
+        .map(|n| n.to_string())
+        .collect::<Vec<_>>()
+        .join(".")
 }
 
 fn push_len(out: &mut Vec<u8>, len: usize) {
     if len < 0x80 {
         out.push(len as u8);
     } else {
-        let bytes: Vec<u8> = (len as u32).to_be_bytes().into_iter().skip_while(|b| *b == 0).collect();
+        let bytes: Vec<u8> = (len as u32)
+            .to_be_bytes()
+            .into_iter()
+            .skip_while(|b| *b == 0)
+            .collect();
         out.push(0x80 | bytes.len() as u8);
         out.extend(bytes);
     }
@@ -57,7 +72,9 @@ fn tlv(tag: u8, body: &[u8]) -> Vec<u8> {
 
 fn int(v: i64) -> Vec<u8> {
     let mut bytes = v.to_be_bytes().to_vec();
-    while bytes.len() > 1 && ((bytes[0] == 0 && bytes[1] & 0x80 == 0) || (bytes[0] == 0xff && bytes[1] & 0x80 != 0)) {
+    while bytes.len() > 1
+        && ((bytes[0] == 0 && bytes[1] & 0x80 == 0) || (bytes[0] == 0xff && bytes[1] & 0x80 != 0))
+    {
         bytes.remove(0);
     }
     tlv(0x02, &bytes)
@@ -83,9 +100,18 @@ fn oid(o: &[u32]) -> Vec<u8> {
 
 /// Encodes a v2c request. `pdu_tag` 0xA0 = GET, 0xA1 = GETNEXT.
 pub fn encode_request(community: &str, request_id: i32, pdu_tag: u8, oids: &[Vec<u32>]) -> Vec<u8> {
-    let varbinds: Vec<u8> = oids.iter().flat_map(|o| tlv(0x30, &[oid(o), vec![0x05, 0x00]].concat())).collect();
-    let pdu = tlv(pdu_tag, &[int(request_id as i64), int(0), int(0), tlv(0x30, &varbinds)].concat());
-    tlv(0x30, &[int(1), tlv(0x04, community.as_bytes()), pdu].concat())
+    let varbinds: Vec<u8> = oids
+        .iter()
+        .flat_map(|o| tlv(0x30, &[oid(o), vec![0x05, 0x00]].concat()))
+        .collect();
+    let pdu = tlv(
+        pdu_tag,
+        &[int(request_id as i64), int(0), int(0), tlv(0x30, &varbinds)].concat(),
+    );
+    tlv(
+        0x30,
+        &[int(1), tlv(0x04, community.as_bytes()), pdu].concat(),
+    )
 }
 
 /// Reads one TLV at `pos`: (tag, body range, next position).
@@ -158,7 +184,11 @@ pub fn decode_response(buf: &[u8]) -> Option<(i32, i64, Vec<(Vec<u32>, Value)>)>
         let body = &buf[vr];
         let value = match vtag {
             0x02 => {
-                let mut v = if body.first().map(|b| b & 0x80 != 0).unwrap_or(false) { -1i64 } else { 0 };
+                let mut v = if body.first().map(|b| b & 0x80 != 0).unwrap_or(false) {
+                    -1i64
+                } else {
+                    0
+                };
                 for b in body {
                     v = (v << 8) | *b as i64;
                 }
@@ -178,30 +208,66 @@ pub fn decode_response(buf: &[u8]) -> Option<(i32, i64, Vec<(Vec<u32>, Value)>)>
     Some((request_id, error, out))
 }
 
-async fn exchange(ip: IpAddr, packet: &[u8], request_id: i32, timeout: Duration) -> Option<Vec<(Vec<u32>, Value)>> {
+async fn exchange(
+    ip: IpAddr,
+    packet: &[u8],
+    request_id: i32,
+    timeout: Duration,
+) -> Option<Vec<(Vec<u32>, Value)>> {
     let sock = tokio::net::UdpSocket::bind("0.0.0.0:0").await.ok()?;
     sock.send_to(packet, SocketAddr::new(ip, 161)).await.ok()?;
     let mut buf = vec![0u8; 8192];
-    let (n, _) = tokio::time::timeout(timeout, sock.recv_from(&mut buf)).await.ok()?.ok()?;
+    let (n, _) = tokio::time::timeout(timeout, sock.recv_from(&mut buf))
+        .await
+        .ok()?
+        .ok()?;
     let (rid, err, vbs) = decode_response(&buf[..n])?;
     (rid == request_id && err == 0).then_some(vbs)
 }
 
-pub async fn get(ip: IpAddr, community: &str, oids: &[&str], timeout: Duration) -> Option<Vec<(Vec<u32>, Value)>> {
+pub async fn get(
+    ip: IpAddr,
+    community: &str,
+    oids: &[&str],
+    timeout: Duration,
+) -> Option<Vec<(Vec<u32>, Value)>> {
     let rid: i32 = rand::random::<i32>().abs();
     let parsed: Vec<Vec<u32>> = oids.iter().map(|o| parse_oid(o)).collect();
-    exchange(ip, &encode_request(community, rid, 0xA0, &parsed), rid, timeout).await
+    exchange(
+        ip,
+        &encode_request(community, rid, 0xA0, &parsed),
+        rid,
+        timeout,
+    )
+    .await
 }
 
 /// Walks a subtree with GETNEXT, returning at most `max` entries.
-pub async fn walk(ip: IpAddr, community: &str, root: &str, max: usize, timeout: Duration) -> Vec<(Vec<u32>, Value)> {
+pub async fn walk(
+    ip: IpAddr,
+    community: &str,
+    root: &str,
+    max: usize,
+    timeout: Duration,
+) -> Vec<(Vec<u32>, Value)> {
     let root = parse_oid(root);
     let mut cur = root.clone();
     let mut out = Vec::new();
     while out.len() < max {
         let rid: i32 = rand::random::<i32>().abs();
-        let Some(vbs) = exchange(ip, &encode_request(community, rid, 0xA1, &[cur.clone()]), rid, timeout).await else { break };
-        let Some((o, v)) = vbs.into_iter().next() else { break };
+        let Some(vbs) = exchange(
+            ip,
+            &encode_request(community, rid, 0xA1, &[cur.clone()]),
+            rid,
+            timeout,
+        )
+        .await
+        else {
+            break;
+        };
+        let Some((o, v)) = vbs.into_iter().next() else {
+            break;
+        };
         if !o.starts_with(&root) || v == Value::Missing || o <= cur {
             break;
         }
@@ -239,7 +305,10 @@ mod tests {
     #[test]
     fn decodes_a_response() {
         // Craft a response by hand: same structure as a request but tag 0xA2 and a string value.
-        let vb = tlv(0x30, &[oid(&parse_oid(SYS_NAME)), tlv(0x04, b"core-sw-01")].concat());
+        let vb = tlv(
+            0x30,
+            &[oid(&parse_oid(SYS_NAME)), tlv(0x04, b"core-sw-01")].concat(),
+        );
         let pdu = tlv(0xA2, &[int(42), int(0), int(0), tlv(0x30, &vb)].concat());
         let msg = tlv(0x30, &[int(1), tlv(0x04, b"public"), pdu].concat());
         let (rid, err, vbs) = decode_response(&msg).unwrap();
@@ -247,7 +316,10 @@ mod tests {
         assert_eq!(vbs[0].1.as_text().as_deref(), Some("core-sw-01"));
         let req = encode_request("public", 7, 0xA0, &[parse_oid(SYS_DESCR)]);
         assert_eq!(req[0], 0x30);
-        assert!(decode_response(&req).is_none(), "requests are not responses");
+        assert!(
+            decode_response(&req).is_none(),
+            "requests are not responses"
+        );
     }
 
     #[test]

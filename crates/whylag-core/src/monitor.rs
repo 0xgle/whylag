@@ -12,7 +12,7 @@ use crate::util::{median, now_ms};
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -152,22 +152,45 @@ impl Store {
 
     pub fn count_and_first(&self) -> (u64, Option<u64>) {
         self.conn
-            .query_row("SELECT COUNT(*), MIN(ts) FROM samples", [], |r| Ok((r.get::<_, i64>(0)? as u64, r.get::<_, Option<i64>>(1)?.map(|v| v as u64))))
+            .query_row("SELECT COUNT(*), MIN(ts) FROM samples", [], |r| {
+                Ok((
+                    r.get::<_, i64>(0)? as u64,
+                    r.get::<_, Option<i64>>(1)?.map(|v| v as u64),
+                ))
+            })
             .unwrap_or((0, None))
     }
 
-    pub fn open_incident(&self, kind: IncidentKind, start: u64, peak: Option<f64>, detail: Option<&str>) -> i64 {
-        let k = serde_json::to_value(kind).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
-        let _ = self.conn.execute("INSERT INTO incidents (kind, start_ms, peak, detail) VALUES (?1,?2,?3,?4)", params![k, start as i64, peak, detail]);
+    pub fn open_incident(
+        &self,
+        kind: IncidentKind,
+        start: u64,
+        peak: Option<f64>,
+        detail: Option<&str>,
+    ) -> i64 {
+        let k = serde_json::to_value(kind)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_default();
+        let _ = self.conn.execute(
+            "INSERT INTO incidents (kind, start_ms, peak, detail) VALUES (?1,?2,?3,?4)",
+            params![k, start as i64, peak, detail],
+        );
         self.conn.last_insert_rowid()
     }
 
     pub fn update_incident(&self, id: i64, end: Option<u64>, peak: Option<f64>) {
-        let _ = self.conn.execute("UPDATE incidents SET end_ms = ?2, peak = COALESCE(?3, peak) WHERE id = ?1", params![id, end.map(|e| e as i64), peak]);
+        let _ = self.conn.execute(
+            "UPDATE incidents SET end_ms = ?2, peak = COALESCE(?3, peak) WHERE id = ?1",
+            params![id, end.map(|e| e as i64), peak],
+        );
     }
 
     pub fn reopen_incident(&self, id: i64, peak: Option<f64>) {
-        let _ = self.conn.execute("UPDATE incidents SET end_ms = NULL, peak = COALESCE(?2, peak) WHERE id = ?1", params![id, peak]);
+        let _ = self.conn.execute(
+            "UPDATE incidents SET end_ms = NULL, peak = COALESCE(?2, peak) WHERE id = ?1",
+            params![id, peak],
+        );
     }
 
     pub fn incidents(&self, limit: usize) -> Vec<Incident> {
@@ -230,7 +253,18 @@ impl Store {
     }
 
     pub fn clear(&self) {
-        let _ = self.conn.execute_batch("DELETE FROM samples; DELETE FROM incidents;");
+        let _ = self
+            .conn
+            .execute_batch("DELETE FROM samples; DELETE FROM incidents;");
+    }
+
+    /// Ends incidents left open by a monitor that stopped or crashed, at the
+    /// last sample recorded, so they do not read as still ongoing.
+    pub fn close_dangling(&self) {
+        let _ = self.conn.execute(
+            "UPDATE incidents SET end_ms = MAX(start_ms, COALESCE((SELECT MAX(ts) FROM samples), start_ms)) WHERE end_ms IS NULL",
+            [],
+        );
     }
 }
 
@@ -257,17 +291,30 @@ impl Detector {
     /// Feeds one sample; returns (kind, active, peak, detail) for each condition.
     pub fn feed(&mut self, s: &Sample, store: &Store) {
         let baseline = self.baseline();
-        let gw_baseline = median(&self.window.iter().filter_map(|x| x.gateway_ms).collect::<Vec<_>>());
+        let gw_baseline = median(
+            &self
+                .window
+                .iter()
+                .filter_map(|x| x.gateway_ms)
+                .collect::<Vec<_>>(),
+        );
         self.window.push(s.clone());
         if self.window.len() > 120 {
             self.window.remove(0);
         }
         let recent: Vec<&Sample> = self.window.iter().rev().take(12).collect();
         let gw_fail = recent.iter().filter(|x| x.gateway_ms.is_none()).count();
-        let inet_fail = recent.iter().filter(|x| x.internet_ms.is_none() && x.gateway_ms.is_some()).count();
+        let inet_fail = recent
+            .iter()
+            .filter(|x| x.internet_ms.is_none() && x.gateway_ms.is_some())
+            .count();
         let last3 = self.window.iter().rev().take(3).collect::<Vec<_>>();
-        let local_down = last3.len() == 3 && last3.iter().all(|x| x.gateway_ms.is_none() || !x.connected);
-        let isp_down = last3.len() == 3 && last3.iter().all(|x| x.gateway_ms.is_some() && x.internet_ms.is_none());
+        let local_down =
+            last3.len() == 3 && last3.iter().all(|x| x.gateway_ms.is_none() || !x.connected);
+        let isp_down = last3.len() == 3
+            && last3
+                .iter()
+                .all(|x| x.gateway_ms.is_some() && x.internet_ms.is_none());
 
         let mut active: Vec<(IncidentKind, f64, Option<String>)> = Vec::new();
         if local_down {
@@ -276,10 +323,18 @@ impl Detector {
             active.push((IncidentKind::IspOutage, 0.0, None));
         } else {
             if gw_fail >= 2 {
-                active.push((IncidentKind::LocalLoss, gw_fail as f64 * 100.0 / recent.len() as f64, None));
+                active.push((
+                    IncidentKind::LocalLoss,
+                    gw_fail as f64 * 100.0 / recent.len() as f64,
+                    None,
+                ));
             }
             if inet_fail >= 2 {
-                active.push((IncidentKind::IspLoss, inet_fail as f64 * 100.0 / recent.len() as f64, None));
+                active.push((
+                    IncidentKind::IspLoss,
+                    inet_fail as f64 * 100.0 / recent.len() as f64,
+                    None,
+                ));
             }
         }
         if let (Some(b), Some(v)) = (baseline, s.internet_ms) {
@@ -288,7 +343,15 @@ impl Detector {
                     (Some(gb), Some(g)) => g > gb * 3.0 && g > gb + 25.0,
                     _ => false,
                 };
-                active.push((if gw_spiked { IncidentKind::LocalLatency } else { IncidentKind::LatencySpike }, v, None));
+                active.push((
+                    if gw_spiked {
+                        IncidentKind::LocalLatency
+                    } else {
+                        IncidentKind::LatencySpike
+                    },
+                    v,
+                    None,
+                ));
             }
         }
         match s.dns_ms {
@@ -304,7 +367,12 @@ impl Detector {
         // Roams are instantaneous events.
         if let (Some(prev), Some(cur)) = (&self.last_bssid, &s.bssid) {
             if prev != cur {
-                let id = store.open_incident(IncidentKind::Roam, s.ts, s.rssi.map(|v| v as f64), Some(&format!("{prev} → {cur}")));
+                let id = store.open_incident(
+                    IncidentKind::Roam,
+                    s.ts,
+                    s.rssi.map(|v| v as f64),
+                    Some(&format!("{prev} → {cur}")),
+                );
                 store.update_incident(id, Some(s.ts), None);
             }
         }
@@ -316,7 +384,11 @@ impl Detector {
         let mut still_open = Vec::new();
         for (kind, id, peak) in std::mem::take(&mut self.open) {
             if let Some((_, v, _)) = active.iter().find(|(k, _, _)| *k == kind) {
-                let new_peak = if kind == IncidentKind::WeakSignal { peak.min(*v) } else { peak.max(*v) };
+                let new_peak = if kind == IncidentKind::WeakSignal {
+                    peak.min(*v)
+                } else {
+                    peak.max(*v)
+                };
                 if new_peak != peak {
                     store.update_incident(id, None, Some(new_peak));
                 }
@@ -331,10 +403,17 @@ impl Detector {
             if still_open.iter().any(|(k, _, _)| *k == kind) {
                 continue;
             }
-            let recent = self.closed.iter().position(|(k, _, end, _)| *k == kind && s.ts.saturating_sub(*end) <= MERGE_GAP_MS);
+            let recent = self
+                .closed
+                .iter()
+                .position(|(k, _, end, _)| *k == kind && s.ts.saturating_sub(*end) <= MERGE_GAP_MS);
             if let Some(pos) = recent {
                 let (_, id, _, peak) = self.closed.remove(pos);
-                let new_peak = if kind == IncidentKind::WeakSignal { peak.min(v) } else { peak.max(v) };
+                let new_peak = if kind == IncidentKind::WeakSignal {
+                    peak.min(v)
+                } else {
+                    peak.max(v)
+                };
                 store.reopen_incident(id, Some(new_peak));
                 still_open.push((kind, id, new_peak));
             } else {
@@ -348,18 +427,30 @@ impl Detector {
 
 pub struct MonitorHandle {
     pub running: AtomicBool,
+    /// Bumped on every start, so a loop from an earlier start that is still
+    /// sleeping exits instead of running alongside the new one.
+    pub generation: std::sync::atomic::AtomicU64,
     pub store: Mutex<Option<Store>>,
     pub info: Mutex<MonitorStatus>,
 }
 
 impl Default for MonitorHandle {
     fn default() -> Self {
-        Self { running: AtomicBool::new(false), store: Mutex::new(None), info: Mutex::new(MonitorStatus::default()) }
+        Self {
+            running: AtomicBool::new(false),
+            generation: Default::default(),
+            store: Mutex::new(None),
+            info: Mutex::new(MonitorStatus::default()),
+        }
     }
 }
 
 fn db_path(state: &AppState, simulated: bool) -> std::path::PathBuf {
-    state.data_dir.join(if simulated { "monitor-demo.sqlite" } else { "monitor.sqlite" })
+    state.data_dir.join(if simulated {
+        "monitor-demo.sqlite"
+    } else {
+        "monitor.sqlite"
+    })
 }
 
 /// Opens the right database (demo or live) if not open yet.
@@ -369,6 +460,9 @@ pub fn ensure_store(state: &AppState) -> Result<(), String> {
     let mut info = state.monitor.info.lock();
     if guard.is_none() || info.simulated != simulated {
         let store = Store::open(&db_path(state, simulated)).map_err(|e| e.to_string())?;
+        if !state.monitor.running.load(Ordering::SeqCst) {
+            store.close_dangling();
+        }
         if simulated && store.count_and_first().0 == 0 {
             crate::sim::monitor::seed_history(&store);
         }
@@ -394,7 +488,13 @@ pub fn status(state: &AppState) -> MonitorStatus {
 
 pub fn series(state: &AppState, from: u64, to: u64, points: usize) -> SampleSeries {
     let _ = ensure_store(state);
-    state.monitor.store.lock().as_ref().map(|s| s.series(from, to, points)).unwrap_or_default()
+    state
+        .monitor
+        .store
+        .lock()
+        .as_ref()
+        .map(|s| s.series(from, to, points))
+        .unwrap_or_default()
 }
 
 pub fn clear(state: &AppState) {
@@ -407,17 +507,40 @@ pub fn stop(state: &AppState) {
     state.monitor.running.store(false, Ordering::SeqCst);
 }
 
-async fn take_sample(state: &Arc<AppState>, gateway: Option<Ipv4Addr>, dns_server: Option<IpAddr>) -> Sample {
+/// Takes one sample. `wifi_expected` remembers whether Wi-Fi was connected on
+/// the first sample: on a wired machine a missing Wi-Fi link is not an outage.
+async fn take_sample(
+    state: &Arc<AppState>,
+    gateway: Option<Ipv4Addr>,
+    dns_server: Option<IpAddr>,
+    wifi_expected: &mut Option<bool>,
+) -> Sample {
     let timeout = Duration::from_millis(1500);
     let gw = async {
-        match gateway {
-            Some(g) => net::icmp::ping_async(g, timeout).await.rtt(),
-            None => None,
+        let g = gateway?;
+        if let Some(rtt) = net::icmp::ping_async(g, timeout).await.rtt() {
+            return Some(rtt);
         }
+        // Some routers ignore ping: any TCP answer (even a reset) proves it is up.
+        let probes = [80u16, 443, 53].map(|p| {
+            net::tcp_probe(
+                SocketAddr::new(IpAddr::V4(g), p),
+                Duration::from_millis(800),
+            )
+        });
+        futures_util::future::join_all(probes)
+            .await
+            .into_iter()
+            .filter(|(o, _)| matches!(o, net::TcpOutcome::Open | net::TcpOutcome::Closed))
+            .filter_map(|(_, rtt)| rtt)
+            .reduce(f64::min)
     };
     let inet = async {
         // Two anchors: the line is "up" if either answers.
-        let (a, b) = tokio::join!(net::icmp::ping_async(Ipv4Addr::new(1, 1, 1, 1), timeout), net::icmp::ping_async(Ipv4Addr::new(8, 8, 8, 8), timeout));
+        let (a, b) = tokio::join!(
+            net::icmp::ping_async(Ipv4Addr::new(1, 1, 1, 1), timeout),
+            net::icmp::ping_async(Ipv4Addr::new(8, 8, 8, 8), timeout)
+        );
         match (a.rtt(), b.rtt()) {
             (Some(x), Some(y)) => Some(x.min(y)),
             (x, y) => x.or(y),
@@ -426,15 +549,26 @@ async fn take_sample(state: &Arc<AppState>, gateway: Option<Ipv4Addr>, dns_serve
     let dns_t = async {
         match dns_server {
             Some(server) => {
-                let name = format!("{}.wikipedia.org", ["en", "pl", "de", "fr", "es", "it"][(now_ms() / 1000 % 6) as usize]);
-                dns::query(server, &name, Duration::from_millis(2000)).await.filter(|a| a.rcode == 0).map(|a| a.rtt_ms)
+                let name = format!(
+                    "{}.wikipedia.org",
+                    ["en", "pl", "de", "fr", "es", "it"][(now_ms() / 1000 % 6) as usize]
+                );
+                dns::query(server, &name, Duration::from_millis(2000))
+                    .await
+                    .filter(|a| a.rcode == 0)
+                    .map(|a| a.rtt_ms)
             }
             None => None,
         }
     };
-    let wifi = async { crate::wifi::scan(state).await.ok() };
+    let wifi = crate::wifi::scan_for_analysis(state);
     let (gateway_ms, internet_ms, dns_ms, scan) = tokio::join!(gw, inet, dns_t, wifi);
-    let iface = scan.as_ref().and_then(|s| s.interfaces.iter().find(|i| i.state == "connected").cloned());
+    let iface = scan.as_ref().and_then(|s| {
+        s.interfaces
+            .iter()
+            .find(|i| i.state == "connected")
+            .cloned()
+    });
     Sample {
         ts: now_ms(),
         gateway_ms,
@@ -443,8 +577,12 @@ async fn take_sample(state: &Arc<AppState>, gateway: Option<Ipv4Addr>, dns_serve
         rssi: iface.as_ref().and_then(|i| i.rssi),
         bssid: iface.as_ref().and_then(|i| i.bssid.clone()),
         channel: iface.as_ref().and_then(|i| i.channel),
-        // Wired connections have no Wi-Fi interface: treat as connected.
-        connected: iface.is_some() || scan.map(|s| s.interfaces.is_empty() || s.source == crate::wifi::ScanSource::Simulator).unwrap_or(true),
+        // A missing Wi-Fi link only means "offline" if Wi-Fi was in use when
+        // monitoring began and the router is not answering by other means.
+        connected: {
+            let expected = *wifi_expected.get_or_insert(iface.is_some());
+            iface.is_some() || !expected || gateway_ms.is_some()
+        },
     }
 }
 
@@ -453,6 +591,7 @@ pub fn start(state: Arc<AppState>, interval_s: u64) -> Result<MonitorStatus, Str
     if state.monitor.running.swap(true, Ordering::SeqCst) {
         return Ok(status(&state));
     }
+    let generation = state.monitor.generation.fetch_add(1, Ordering::SeqCst) + 1;
     let interval = interval_s.clamp(1, 300);
     {
         let mut info = state.monitor.info.lock();
@@ -462,9 +601,19 @@ pub fn start(state: Arc<AppState>, interval_s: u64) -> Result<MonitorStatus, Str
     let st = state.clone();
     tokio::spawn(async move {
         let simulated = st.use_simulator();
-        let local = if simulated { Some(crate::sim::lan::local()) } else { tokio::task::spawn_blocking(net::local_net).await.ok().flatten() };
+        let local = if simulated {
+            Some(crate::sim::lan::local())
+        } else {
+            tokio::task::spawn_blocking(net::local_net)
+                .await
+                .ok()
+                .flatten()
+        };
         let gateway = local.as_ref().and_then(|l| l.gateway);
-        let dns_server = local.as_ref().and_then(|l| l.dns_servers.iter().find(|d| !d.is_loopback()).copied()).or(Some(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))));
+        let dns_server = local
+            .as_ref()
+            .and_then(|l| l.dns_servers.iter().find(|d| !d.is_loopback()).copied())
+            .or(Some(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))));
         {
             let mut info = st.monitor.info.lock();
             info.gateway = gateway.map(|g| g.to_string());
@@ -472,9 +621,21 @@ pub fn start(state: Arc<AppState>, interval_s: u64) -> Result<MonitorStatus, Str
         }
         let mut detector = Detector::default();
         let mut sim = crate::sim::monitor::Live::default();
-        while st.monitor.running.load(Ordering::SeqCst) {
+        let mut wifi_expected = None;
+        let alive = |st: &AppState| {
+            st.monitor.running.load(Ordering::SeqCst)
+                && st.monitor.generation.load(Ordering::SeqCst) == generation
+        };
+        while alive(&st) {
             let started = std::time::Instant::now();
-            let sample = if simulated { sim.next(now_ms()) } else { take_sample(&st, gateway, dns_server).await };
+            let sample = if simulated {
+                sim.next(now_ms())
+            } else {
+                take_sample(&st, gateway, dns_server, &mut wifi_expected).await
+            };
+            if !alive(&st) {
+                break;
+            }
             if let Some(store) = st.monitor.store.lock().as_ref() {
                 let _ = store.insert(&sample);
                 detector.feed(&sample, store);
@@ -482,8 +643,14 @@ pub fn start(state: Arc<AppState>, interval_s: u64) -> Result<MonitorStatus, Str
             let wait = Duration::from_secs(interval).saturating_sub(started.elapsed());
             // Sleep in short steps so Stop reacts quickly.
             let until = std::time::Instant::now() + wait;
-            while std::time::Instant::now() < until && st.monitor.running.load(Ordering::SeqCst) {
+            while std::time::Instant::now() < until && alive(&st) {
                 tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        }
+        // Stopped: end whatever was still open at the last sample.
+        if st.monitor.generation.load(Ordering::SeqCst) == generation {
+            if let Some(store) = st.monitor.store.lock().as_ref() {
+                store.close_dangling();
             }
         }
     });
@@ -495,7 +662,16 @@ mod tests {
     use super::*;
 
     fn sample(ts: u64, gw: Option<f64>, inet: Option<f64>) -> Sample {
-        Sample { ts, gateway_ms: gw, internet_ms: inet, dns_ms: Some(12.0), rssi: Some(-55), bssid: Some("a".into()), channel: Some(36), connected: true }
+        Sample {
+            ts,
+            gateway_ms: gw,
+            internet_ms: inet,
+            dns_ms: Some(12.0),
+            rssi: Some(-55),
+            bssid: Some("a".into()),
+            channel: Some(36),
+            connected: true,
+        }
     }
 
     #[test]
@@ -532,7 +708,10 @@ mod tests {
         assert!(kinds.contains(&IncidentKind::IspOutage), "{kinds:?}");
         assert!(kinds.contains(&IncidentKind::LatencySpike), "{kinds:?}");
         assert!(!kinds.contains(&IncidentKind::LocalOutage));
-        assert!(incidents.iter().filter(|i| i.kind == IncidentKind::IspOutage).all(|i| i.end_ms.is_some()));
+        assert!(incidents
+            .iter()
+            .filter(|i| i.kind == IncidentKind::IspOutage)
+            .all(|i| i.end_ms.is_some()));
         let series = store.series(0, t, 10);
         assert!(!series.ts.is_empty());
         assert!(series.internet_loss.iter().any(|l| *l > 0.0));

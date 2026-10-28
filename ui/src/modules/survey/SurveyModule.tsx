@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FolderOpen, ImagePlus, RotateCcw, Sparkles } from "lucide-react";
-import { call, openFile } from "../../api";
+import { call, openFile, type CallError } from "../../api";
+import { peerErrorKey } from "../../lib/peer";
 import { useApp } from "../../store";
 import { useT } from "../../i18n";
 import type { Heatmap, PlacementSuggestion, Reading, Sample, ScanResult, SimInfo, SurveyProject, VirtualAp, Wall } from "../../types";
@@ -218,7 +219,7 @@ export function SurveyModule() {
       try {
         const pos = hoverRef.current;
         if (isSim && pos) await call("sim.setPosition", { xPx: pos.x, yPx: pos.y });
-        const scan = await call<ScanResult>("wifi.scan");
+        const scan = await call<ScanResult>("wifi.scan", { trigger: true, minGapMs: 4000 });
         if (!alive || !walkRef.current) return;
         const readings = toReadings(scan);
         if (isSim && pos) {
@@ -275,14 +276,14 @@ export function SurveyModule() {
       try {
         await call("sim.setPosition", { xPx: x, yPx: y });
         const scan = await call<ScanResult>("wifi.scanFresh", { waitMs: 3500 });
-        const { measureThroughput, throughputHost } = useSurvey.getState();
+        const { measureThroughput, throughputHost, throughputCode } = useSurvey.getState();
         let throughputMbps: number | null = null;
         if (measureThroughput && (isSim || throughputHost.trim())) {
           try {
-            const r = await call<{ downloadMbps: number }>("survey.throughput", { host: throughputHost.trim() });
+            const r = await call<{ downloadMbps: number }>("survey.throughput", { host: throughputHost.trim(), code: throughputCode });
             throughputMbps = r.downloadMbps;
           } catch (e) {
-            setError(t("perf.peer.unreachable"));
+            setError(t(peerErrorKey((e as CallError).code)));
           }
         }
         addSamples([{ x, y, tMs: scan.timestampMs, readings: toReadings(scan), throughputMbps }]);

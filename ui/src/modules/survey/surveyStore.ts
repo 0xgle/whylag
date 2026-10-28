@@ -29,6 +29,7 @@ interface SurveyState {
   /** Run a short throughput test at each point measurement. */
   measureThroughput: boolean;
   throughputHost: string;
+  throughputCode: string;
 
   setProject: (p: SurveyProject | null, recordUndo?: boolean) => void;
   update: (fn: (p: SurveyProject) => SurveyProject) => void;
@@ -64,6 +65,7 @@ export const useSurvey = create<SurveyState>((set, get) => ({
   calibration: { a: null, b: null },
   measureThroughput: false,
   throughputHost: "",
+  throughputCode: "",
 
   setProject: (project, recordUndo = false) => {
     const prev = get().project;
