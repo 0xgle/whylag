@@ -40,7 +40,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: ui/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -48,15 +50,15 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install UI dependencies
-        run: npm ci --prefix ui
+      - name: Install JS dependencies
+        run: |
+          npm ci
+          npm ci --prefix ui
 
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          projectPath: src-tauri
-          tauriScript: npx --prefix ../ui tauri
           tagName: ${{ github.event.release.tag_name }}
           releaseId: ${{ github.event.release.id }}
           args: ${{ matrix.args }}

@@ -1,0 +1,13 @@
+{
+  "name": "whylag",
+  "private": true,
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "devserver": "cargo run -p whylag-devserver"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.4"
+  }
+}

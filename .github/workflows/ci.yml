@@ -30,14 +30,18 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: ui/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
 
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install UI dependencies
-        run: npm ci --prefix ui
+      - name: Install JS dependencies
+        run: |
+          npm ci
+          npm ci --prefix ui
 
       - name: Type-check and build UI
         run: npm run build --prefix ui
