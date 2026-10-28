@@ -15,6 +15,9 @@
         <img src="./icon.svg" width="30" height="30" alt="" />
         <span>WhyLag</span>
       </a>
+      <nav class="links">
+        <a href="./ranking.html" id="rankNav" data-t="navRanking" hidden></a>
+      </nav>
       <div class="lang" role="group" aria-label="Language">
         <button data-lang="en">EN</button>
         <button data-lang="pl">PL</button>
@@ -49,6 +52,10 @@
           <span class="phase" id="phase"></span>
         </div>
         <p class="consent" data-t="consent"></p>
+        <label class="share-opt" id="shareOpt" hidden>
+          <input type="checkbox" id="shareRanking" checked />
+          <span data-t="shareRanking"></span>
+        </label>
         <p class="error" id="error" hidden></p>
       </section>
 
@@ -62,6 +69,7 @@
             <button class="primary" id="share" data-t="share"></button>
             <button id="again" data-t="again"></button>
           </div>
+          <p class="ranked" id="ranked" hidden></p>
           <p class="server" id="server"></p>
         </div>
       </section>

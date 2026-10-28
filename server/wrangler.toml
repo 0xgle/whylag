@@ -1,0 +1,22 @@
+name = "whylag-api"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+
+# Rebuild the rankings every hour.
+[triggers]
+crons = ["17 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "whylag"
+# Filled in by the deploy workflow (scripts/deploy.mjs).
+database_id = "00000000-0000-0000-0000-000000000000"
+
+# Per-address submission limit; addresses are only used in memory.
+[[ratelimits]]
+name = "LIMITER"
+namespace_id = "1001"
+simple = { limit = 6, period = 60 }
+
+[vars]
+ALLOWED_ORIGINS = "https://0xgle.github.io,http://localhost:5174,http://127.0.0.1:5174"

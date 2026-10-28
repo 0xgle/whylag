@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WhyLag — Which internet provider lags least?</title>
+    <meta name="description" content="Internet providers ranked by real lag under load, from anonymous WhyLag tests." />
+    <meta property="og:title" content="Which internet provider lags least?" />
+    <meta property="og:description" content="Providers ranked by the lag people actually feel, from anonymous WhyLag tests." />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="./">
+        <img src="./icon.svg" width="30" height="30" alt="" />
+        <span>WhyLag</span>
+      </a>
+      <nav class="links">
+        <a href="./" data-t="navTest"></a>
+      </nav>
+      <div class="lang" role="group" aria-label="Language">
+        <button data-lang="en">EN</button>
+        <button data-lang="pl">PL</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <h1 data-t="rankTitle"></h1>
+        <p class="lead" id="lead"></p>
+      </section>
+
+      <section class="meter">
+        <div class="controls">
+          <label class="country">
+            <span class="label" data-t="rankCountry"></span>
+            <select id="country"></select>
+          </label>
+          <a class="primary cta" href="./" data-t="rankCta"></a>
+        </div>
+        <p class="sub" id="updated"></p>
+        <div class="rank-wrap">
+          <table class="rank" id="table" hidden>
+            <thead>
+              <tr>
+                <th class="num">#</th>
+                <th data-t="rankProvider"></th>
+                <th class="num" data-t="rankLag"></th>
+                <th class="num" data-t="rankLaggy"></th>
+                <th class="num" data-t="rankDown"></th>
+                <th class="num" data-t="rankUp"></th>
+                <th class="num" data-t="rankIdle"></th>
+                <th class="num" data-t="rankTests"></th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <p class="phase" id="empty" hidden></p>
+      </section>
+
+      <p class="consent" data-t="rankMethod"></p>
+    </main>
+
+    <footer><span data-t="footer"></span></footer>
+    <script type="module" src="./src/rankingPage.ts"></script>
+  </body>
+</html>

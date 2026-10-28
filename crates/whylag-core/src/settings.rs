@@ -35,6 +35,8 @@ pub struct Settings {
     /// AutoTest limit profiles (one per site or client) and the one in use.
     pub autotest_profiles: Vec<crate::autotest::Profile>,
     pub autotest_profile: String,
+    /// Send anonymous speed test results to the public provider ranking.
+    pub share_ranking: bool,
 }
 
 impl Default for Settings {
@@ -51,6 +53,7 @@ impl Default for Settings {
             coverage_threshold_dbm: -67,
             autotest_profiles: vec![crate::autotest::Profile::default()],
             autotest_profile: "Standard".into(),
+            share_ranking: false,
         }
     }
 }

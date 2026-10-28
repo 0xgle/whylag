@@ -841,6 +841,9 @@ export const en = {
   "overlay.cause.home": "Lag in your network",
   "overlay.cause.isp": "Lag at your provider",
   "overlay.cause.offline": "No connection",
+  "settings.ranking": "Provider ranking",
+  "settings.ranking.share": "Add my speed test results to the public provider ranking",
+  "settings.ranking.help": "Anonymous: only the measured numbers are sent, and the ranking keeps your provider, country and city as Cloudflare sees them. No IP address is stored.",
 };
 
 export type Dict = typeof en;

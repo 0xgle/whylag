@@ -6,6 +6,7 @@ import "@fontsource/barlow-semi-condensed/700.css";
 import "./style.css";
 import { detectLang, tr, type Key, type Lang } from "./i18n";
 import { runDemo, runTest, type Progress, type Result } from "./ndt7";
+import { apiBase, submitResult } from "./ranking";
 
 let lang: Lang = detectLang();
 const demo = new URLSearchParams(location.search).has("demo");
@@ -156,14 +157,30 @@ async function shareCard(r: Result) {
   a.click();
 }
 
+const SHARE_KEY = "whylag.shareRanking";
+
+async function shareToRanking(r: Result) {
+  const loaded = Math.max(r.loadedDownMs ?? 0, r.loadedUpMs ?? 0) || null;
+  const res = await submitResult({ downMbps: r.downloadMbps, uploadMbps: r.uploadMbps, idleMs: r.idleMs, loadedMs: loaded });
+  if (!res?.ok || !res.org) return;
+  const p = $("ranked");
+  const link = document.createElement("a");
+  link.href = `./ranking.html${res.country ? `?country=${res.country}` : ""}`;
+  link.textContent = tr(lang, "rankingLink");
+  p.replaceChildren(document.createTextNode(`${tr(lang, "rankingAdded", { org: res.org })} `), link);
+  p.hidden = false;
+}
+
 async function start() {
   const btn = $<HTMLButtonElement>("start");
   btn.disabled = true;
   $("error").hidden = true;
   $("result").hidden = true;
+  $("ranked").hidden = true;
   try {
     last = await (demo ? runDemo : runTest)(onProgress);
     renderResult(last);
+    if (!demo && $<HTMLInputElement>("shareRanking").checked) void shareToRanking(last);
     $("result").scrollIntoView({ behavior: "smooth", block: "center" });
   } catch {
     $("error").textContent = tr(lang, "failed");
@@ -180,6 +197,24 @@ document.querySelectorAll<HTMLButtonElement>("[data-lang]").forEach((b) =>
   }),
 );
 $("start").addEventListener("click", start);
+// The ranking options appear only once the ranking API is deployed.
+void apiBase().then((b) => {
+  if (!b) return;
+  $("shareOpt").hidden = false;
+  $("rankNav").hidden = false;
+});
+try {
+  if (localStorage.getItem(SHARE_KEY) === "0") $<HTMLInputElement>("shareRanking").checked = false;
+} catch {
+  /* storage unavailable */
+}
+$("shareRanking").addEventListener("change", (e) => {
+  try {
+    localStorage.setItem(SHARE_KEY, (e.target as HTMLInputElement).checked ? "1" : "0");
+  } catch {
+    /* storage unavailable */
+  }
+});
 $("again").addEventListener("click", start);
 $("share").addEventListener("click", () => last && shareCard(last));
 applyLang();

@@ -461,7 +461,12 @@ async fn run(state: Arc<AppState>, req: PerfRequest) -> Result<(), String> {
             });
         };
         match ndt7::run(&state.perf_handle.cancel, progress).await {
-            Ok(result) => set(&state, |r| r.speed = Some(result)),
+            Ok(result) => {
+                if state.settings().share_ranking {
+                    tokio::spawn(share_to_ranking(result.clone()));
+                }
+                set(&state, |r| r.speed = Some(result))
+            }
             Err(e) => set(&state, |r| r.speed_error = Some(e)),
         }
     }
@@ -500,4 +505,40 @@ mod tests {
         assert_eq!(s.median, Some(12.0));
         assert_eq!(s.jitter, Some(3.0));
     }
+}
+
+/// Where the web test publishes the ranking API address.
+const RANKING_CONFIG: &str = "https://0xgle.github.io/whylag/api.json";
+
+/// Sends an anonymous result to the provider ranking (only when the user
+/// turned it on). Best effort: failures are ignored.
+async fn share_to_ranking(r: SpeedResult) {
+    let (Some(down), Some(up)) = (r.download_mbps, r.upload_mbps) else {
+        return;
+    };
+    let Ok(client) = reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+    else {
+        return;
+    };
+    let base = match client.get(RANKING_CONFIG).send().await {
+        Ok(resp) => resp
+            .json::<serde_json::Value>()
+            .await
+            .ok()
+            .and_then(|v| v.get("base").and_then(|b| b.as_str()).map(str::to_string)),
+        Err(_) => None,
+    };
+    let Some(base) = base else { return };
+    let loaded = [r.loaded_down_latency_ms, r.loaded_up_latency_ms]
+        .into_iter()
+        .flatten()
+        .reduce(f64::max);
+    let body = serde_json::json!({ "downMbps": down, "upMbps": up, "idleMs": r.idle_latency_ms, "loadedMs": loaded, "source": "app" });
+    let _ = client
+        .post(format!("{base}/submit"))
+        .json(&body)
+        .send()
+        .await;
 }

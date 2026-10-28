@@ -90,6 +90,7 @@ export interface Settings {
   coverageThresholdDbm: number;
   autotestProfiles: AutoTestProfile[];
   autotestProfile: string;
+  shareRanking: boolean;
 }
 
 export interface AutoTestProfile {

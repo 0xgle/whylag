@@ -842,4 +842,7 @@ export const pl: Dict = {
   "overlay.cause.home": "Lagi w Twojej sieci",
   "overlay.cause.isp": "Lagi u operatora",
   "overlay.cause.offline": "Brak połączenia",
+  "settings.ranking": "Ranking operatorów",
+  "settings.ranking.share": "Dodawaj moje wyniki testu prędkości do publicznego rankingu operatorów",
+  "settings.ranking.help": "Anonimowo: wysyłane są tylko zmierzone liczby, a ranking zapisuje operatora, kraj i miasto tak, jak widzi je Cloudflare. Adres IP nie jest zapisywany.",
 };

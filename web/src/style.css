@@ -26,6 +26,11 @@
   box-sizing: border-box;
 }
 
+/* Layout rules like display: flex must not override the hidden attribute. */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background:
@@ -323,5 +328,125 @@ footer {
 @media (prefers-reduced-motion: reduce) {
   .fill {
     transition: none;
+  }
+}
+
+.top .links {
+  margin-left: auto;
+  margin-right: 16px;
+}
+
+.links a {
+  color: var(--ink-2);
+  font-weight: 600;
+  font-size: 15px;
+  text-decoration: none;
+}
+
+.links a:hover {
+  color: var(--accent);
+}
+
+.share-opt {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 10px;
+  font-size: 14px;
+  color: var(--ink-2);
+  max-width: 70ch;
+  cursor: pointer;
+}
+
+.share-opt input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+
+.ranked {
+  font-size: 15px;
+  color: var(--ink-2);
+}
+
+.ranked a,
+.consent a {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.country {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.country select {
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  min-width: 220px;
+}
+
+.controls .cta {
+  margin-left: auto;
+  align-self: flex-end;
+}
+
+.rank-wrap {
+  overflow-x: auto;
+  margin-top: 18px;
+}
+
+.rank {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+
+.rank th {
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-3);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+
+.rank td {
+  padding: 11px 10px;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+
+.rank .num {
+  text-align: right;
+}
+
+.rank .org {
+  font-weight: 600;
+  white-space: normal;
+}
+
+.rank .lag {
+  font-family: "Barlow Semi Condensed", sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.rank .lag.good { color: #12805a; }
+.rank .lag.fair { color: #b07f00; }
+.rank .lag.bad { color: #c0263d; }
+
+.rank .muted {
+  color: var(--ink-3);
+}
+
+@media (max-width: 720px) {
+  .controls .cta {
+    margin-left: 0;
   }
 }

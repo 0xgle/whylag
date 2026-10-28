@@ -104,6 +104,12 @@ export function SettingsModule() {
               </label>
             </div>
           </Field>
+          <Field label={t("settings.ranking")} help={t("settings.ranking.help")}>
+            <label className="check">
+              <input type="checkbox" checked={!!settings.shareRanking} onChange={(e) => save({ shareRanking: e.target.checked })} />
+              {t("settings.ranking.share")}
+            </label>
+          </Field>
           <Field label={t("settings.snmp")} help={t("settings.snmp.help")}>
             <TextInput value={settings.snmpCommunity} onCommit={(v) => save({ snmpCommunity: v })} width={180} />
           </Field>
