@@ -144,3 +144,25 @@ export function Field({ label, help, children }: { label: ReactNode; help?: Reac
     </div>
   );
 }
+
+export function Progress({ value, label }: { value: number; label?: ReactNode }) {
+  return (
+    <div className="progress-wrap">
+      <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(value * 100)}>
+        <div className="progress-fill" style={{ width: `${Math.max(2, Math.min(100, value * 100))}%` }} />
+      </div>
+      {label && <span className="small muted">{label}</span>}
+    </div>
+  );
+}
+
+/** Empty state shown before a module has run for the first time. */
+export function Intro({ title, body, action }: { title: ReactNode; body: ReactNode; action: ReactNode }) {
+  return (
+    <div className="intro">
+      <h2 className="intro-title">{title}</h2>
+      <p className="intro-body">{body}</p>
+      {action}
+    </div>
+  );
+}

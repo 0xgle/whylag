@@ -212,3 +212,169 @@ export interface PlacementSuggestion {
   coverageBefore: number;
   coverageAfter: number;
 }
+
+// ---------- Network ----------
+
+export interface LocalNet {
+  interfaceName: string;
+  friendlyName: string | null;
+  description: string | null;
+  kind: string;
+  mac: string | null;
+  ipv4: string | null;
+  prefixLen: number | null;
+  ipv6: string[];
+  gateway: string | null;
+  gatewayMac: string | null;
+  dnsServers: string[];
+  linkSpeedMbps: number | null;
+  mtu: number | null;
+  dhcp: boolean | null;
+}
+
+export type DeviceKind =
+  | "router"
+  | "switch"
+  | "accessPoint"
+  | "firewall"
+  | "server"
+  | "nas"
+  | "printer"
+  | "camera"
+  | "phone"
+  | "tablet"
+  | "computer"
+  | "tv"
+  | "mediaPlayer"
+  | "speaker"
+  | "iot"
+  | "gameConsole"
+  | "voip"
+  | "unknown";
+
+export interface Host {
+  ip: string;
+  mac: string | null;
+  vendor: string | null;
+  randomMac: boolean;
+  name: string | null;
+  names: [string, string][];
+  kind: DeviceKind;
+  evidence: string[];
+  model: string | null;
+  os: string | null;
+  ports: { port: number; service: string }[];
+  mdnsServices: string[];
+  httpTitle: string | null;
+  httpServer: string | null;
+  snmpName: string | null;
+  snmpDescr: string | null;
+  upnpType: string | null;
+  rttMs: number | null;
+  isGateway: boolean;
+  isSelf: boolean;
+}
+
+export interface Link {
+  from: string;
+  localPort: string | null;
+  neighbor: string;
+  neighborIp: string | null;
+  remotePort: string | null;
+}
+
+interface JobBase {
+  running: boolean;
+  phase: string;
+  progress: number;
+  startedMs: number;
+  finishedMs: number | null;
+  simulated: boolean;
+  error: string | null;
+}
+
+export interface DiscoveryRun extends JobBase {
+  local: LocalNet | null;
+  subnet: string | null;
+  hosts: Host[];
+  links: Link[];
+}
+
+export interface LatencyStats {
+  id: string;
+  label: string;
+  host: string;
+  kind: "icmp" | "tcp" | null;
+  group: string;
+  sent: number;
+  received: number;
+  lossPct: number;
+  min: number | null;
+  avg: number | null;
+  median: number | null;
+  p95: number | null;
+  max: number | null;
+  jitter: number | null;
+  samples: (number | null)[];
+}
+
+export interface DnsResult {
+  server: string;
+  label: string;
+  system: boolean;
+  medianMs: number | null;
+  succeeded: number;
+  total: number;
+}
+
+export interface SpeedResult {
+  server: string;
+  downloadMbps: number | null;
+  uploadMbps: number | null;
+  idleLatencyMs: number | null;
+  loadedDownLatencyMs: number | null;
+  loadedUpLatencyMs: number | null;
+  grade: string | null;
+  downSeries: [number, number][];
+  upSeries: [number, number][];
+}
+
+export interface PerfRun extends JobBase {
+  latency: LatencyStats[];
+  dns: DnsResult[];
+  dnsHijack: boolean | null;
+  speed: SpeedResult | null;
+  speedError: string | null;
+}
+
+export type Segment = "lan" | "isp" | "internet" | "destination" | "unknown";
+
+export interface Hop {
+  ttl: number;
+  ip: string | null;
+  name: string | null;
+  segment: Segment;
+  sent: number;
+  received: number;
+  lossPct: number;
+  best: number | null;
+  avg: number | null;
+  worst: number | null;
+  last: number | null;
+  jitter: number | null;
+}
+
+export interface PathFinding {
+  code: string;
+  ttl: number | null;
+  segment: Segment | null;
+  value: number | null;
+}
+
+export interface PathRun extends JobBase {
+  target: string;
+  targetIp: string | null;
+  hops: Hop[];
+  findings: PathFinding[];
+  rounds: number;
+}

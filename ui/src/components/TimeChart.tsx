@@ -25,7 +25,9 @@ export function TimeChart({
   yRange,
   yLabel,
   ariaLabel,
+  xTime = true,
 }: {
+  xTime?: boolean;
   series: Series[];
   height?: number;
   yRange?: [number, number];
@@ -36,6 +38,20 @@ export function TimeChart({
   const plot = useRef<uPlot | null>(null);
   const theme = useApp((s) => s.theme);
   const key = series.map((s) => `${s.label}|${s.color}`).join(";");
+  const latest = useRef({ series, xTime });
+  latest.current = { series, xTime };
+
+  const pushData = (u: uPlot) => {
+    const { series, xTime } = latest.current;
+    const ts = Array.from(new Set(series.flatMap((s) => s.points.map((p) => p[0])))).sort((a, b) => a - b);
+    const index = new Map(ts.map((t, i) => [t, i]));
+    const cols = series.map((s) => {
+      const col: (number | null)[] = new Array(ts.length).fill(null);
+      for (const [t, v] of s.points) col[index.get(t)!] = v;
+      return col;
+    });
+    u.setData([xTime ? ts.map((t) => t / 1000) : ts, ...cols] as uPlot.AlignedData);
+  };
 
   // (Re)create the chart when the set of series or the theme changes.
   useEffect(() => {
@@ -49,11 +65,11 @@ export function TimeChart({
       legend: { show: series.length > 0, live: false },
       cursor: { drag: { x: false, y: false } },
       scales: {
-        x: { time: true },
+        x: { time: xTime },
         y: yRange ? { range: () => yRange } : { auto: true },
       },
       axes: [
-        { stroke: ink3, grid: { stroke: rule, width: 1 }, ticks: { stroke: rule } },
+        { stroke: ink3, grid: { stroke: rule, width: 1 }, ticks: { stroke: rule }, ...(xTime ? {} : { values: (_u: uPlot, vals: number[]) => vals.map((v) => `${v} s`) }) },
         { stroke: ink3, grid: { stroke: rule, width: 1 }, ticks: { stroke: rule }, label: yLabel, size: 48 },
       ],
       series: [
@@ -63,6 +79,7 @@ export function TimeChart({
     };
     const u = new uPlot(opts, [[]], el);
     plot.current = u;
+    pushData(u);
     const ro = new ResizeObserver(() => u.setSize({ width: el.clientWidth, height }));
     ro.observe(el);
     return () => {
@@ -71,21 +88,13 @@ export function TimeChart({
       plot.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, theme, height, yLabel, yRange?.[0], yRange?.[1]]);
+  }, [key, theme, height, yLabel, yRange?.[0], yRange?.[1], xTime]);
 
   // Push data without recreating.
   useEffect(() => {
-    const u = plot.current;
-    if (!u) return;
-    const ts = Array.from(new Set(series.flatMap((s) => s.points.map((p) => p[0])))).sort((a, b) => a - b);
-    const index = new Map(ts.map((t, i) => [t, i]));
-    const cols = series.map((s) => {
-      const col: (number | null)[] = new Array(ts.length).fill(null);
-      for (const [t, v] of s.points) col[index.get(t)!] = v;
-      return col;
-    });
-    u.setData([ts.map((t) => t / 1000), ...cols] as uPlot.AlignedData);
-  }, [series]);
+    if (plot.current) pushData(plot.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [series, xTime]);
 
   return <div ref={host} role="img" aria-label={ariaLabel} style={{ width: "100%", minHeight: height }} />;
 }

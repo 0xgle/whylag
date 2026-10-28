@@ -21,6 +21,9 @@ import { LinkReadout } from "./components/LinkReadout";
 import { Notice } from "./components/ui";
 import { WifiModule } from "./modules/wifi/WifiModule";
 import { SurveyModule } from "./modules/survey/SurveyModule";
+import { DiscoveryModule } from "./modules/discovery/DiscoveryModule";
+import { PerformanceModule } from "./modules/performance/PerformanceModule";
+import { PathModule } from "./modules/path/PathModule";
 import { SettingsModule } from "./modules/settings/SettingsModule";
 import { Placeholder } from "./modules/Placeholder";
 
@@ -44,6 +47,9 @@ const NAV: NavEntry[] = [
 const MODULES: Partial<Record<ModuleId, ComponentType>> = {
   wifi: WifiModule,
   survey: SurveyModule,
+  discovery: DiscoveryModule,
+  performance: PerformanceModule,
+  path: PathModule,
   settings: SettingsModule,
 };
 

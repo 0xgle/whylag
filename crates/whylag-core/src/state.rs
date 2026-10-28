@@ -9,12 +9,37 @@ pub struct AppState {
     pub data_dir: PathBuf,
     settings: RwLock<Settings>,
     pub sim: Mutex<SimWorld>,
+    pub discovery: Mutex<crate::discovery::DiscoveryRun>,
+    pub discovery_handle: crate::discovery::DiscoveryHandle,
+    pub perf: Mutex<crate::perf::PerfRun>,
+    pub perf_handle: crate::perf::PerfHandle,
+    pub path: Mutex<crate::path::PathRun>,
+    pub path_handle: crate::path::PathHandle,
+    pub peer_server: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl AppState {
     pub fn new(data_dir: PathBuf) -> Arc<Self> {
         let settings = Settings::load(&data_dir.join("settings.json"));
-        Arc::new(Self { data_dir, settings: RwLock::new(settings), sim: Mutex::new(SimWorld::new()) })
+        Arc::new(Self {
+            data_dir,
+            settings: RwLock::new(settings),
+            sim: Mutex::new(SimWorld::new()),
+            discovery: Mutex::new(Default::default()),
+            discovery_handle: Default::default(),
+            perf: Mutex::new(Default::default()),
+            perf_handle: Default::default(),
+            path: Mutex::new(Default::default()),
+            path_handle: Default::default(),
+            peer_server: Mutex::new(None),
+        })
+    }
+
+    /// Network engines (discovery, performance, path) use the simulated office
+    /// only when the user picked it explicitly; Wi-Fi scanning additionally
+    /// falls back to it when no adapter data is available.
+    pub fn use_simulator(&self) -> bool {
+        self.settings.read().data_source == crate::settings::DataSource::Simulator
     }
 
     pub fn settings(&self) -> Settings {

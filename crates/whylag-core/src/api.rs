@@ -33,6 +33,16 @@ struct WaitMs {
 }
 
 #[derive(Deserialize)]
+struct Enable {
+    enable: bool,
+}
+
+#[derive(Deserialize)]
+struct Host {
+    host: String,
+}
+
+#[derive(Deserialize)]
 struct Content {
     content: String,
 }
@@ -103,6 +113,62 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
         }
         "survey.materials" => to_value(crate::survey::materials()),
 
+        "net.info" => {
+            if state.use_simulator() {
+                return to_value(crate::sim::lan::local());
+            }
+            to_value(blocking(crate::net::local_net).await?)
+        }
+
+        "discovery.start" => to_value(crate::discovery::start(state.clone())),
+        "discovery.status" => to_value(state.discovery.lock().clone()),
+        "discovery.stop" => {
+            crate::discovery::stop(state);
+            Ok(Value::Null)
+        }
+
+        "perf.start" => {
+            let req: crate::perf::PerfRequest = params(p)?;
+            to_value(crate::perf::start(state.clone(), req))
+        }
+        "perf.status" => to_value(state.perf.lock().clone()),
+        "perf.stop" => {
+            crate::perf::stop(state);
+            Ok(Value::Null)
+        }
+        "perf.peerServer" => {
+            let r: Enable = params(p)?;
+            let mut status = crate::perf::peer::PeerServerStatus { port: crate::perf::peer::PORT, ..Default::default() };
+            let running = state.peer_server.lock().is_some();
+            if r.enable && !running {
+                match crate::perf::peer::start_server().await {
+                    Ok(handle) => *state.peer_server.lock() = Some(handle),
+                    Err(e) => status.error = Some(e.to_string()),
+                }
+            } else if !r.enable {
+                if let Some(h) = state.peer_server.lock().take() {
+                    h.abort();
+                }
+            }
+            status.listening = state.peer_server.lock().is_some();
+            status.addresses = crate::perf::peer::local_addresses();
+            to_value(status)
+        }
+        "perf.peerTest" => {
+            let r: Host = params(p)?;
+            to_value(crate::perf::peer::run_test(&r.host).await.map_err(|e| ApiError::new(e, "peer test failed"))?)
+        }
+
+        "path.start" => {
+            let req: crate::path::PathRequest = params(p)?;
+            to_value(crate::path::start(state.clone(), req))
+        }
+        "path.status" => to_value(state.path.lock().clone()),
+        "path.stop" => {
+            crate::path::stop(state);
+            Ok(Value::Null)
+        }
+
         "fs.writeText" => {
             // Only reached with a path the user picked in a native save dialog.
             let w: WriteText = params(p)?;
@@ -119,4 +185,12 @@ pub async fn dispatch(state: &Arc<AppState>, method: &str, p: Value) -> ApiResul
 
         _ => Err(ApiError::unknown_method(method)),
     }
+}
+
+/// Compile-time guard: the dispatcher future must stay `Send`, because both the
+/// Tauri command and the HTTP bridge run it on a multi-threaded runtime.
+#[allow(dead_code)]
+fn dispatch_future_is_send(state: &Arc<AppState>) {
+    fn assert_send<T: Send>(_: T) {}
+    assert_send(dispatch(state, "", Value::Null));
 }

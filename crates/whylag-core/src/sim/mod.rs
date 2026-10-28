@@ -5,6 +5,8 @@
 //! Every engine can run against it, which makes the app demoable without hardware
 //! and lets the whole UI be tested in CI.
 
+pub mod lan;
+pub mod net;
 mod plan;
 mod radios;
 

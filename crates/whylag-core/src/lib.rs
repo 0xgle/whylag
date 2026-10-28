@@ -13,7 +13,11 @@ pub mod util;
 pub mod rf;
 pub mod sim;
 pub mod survey;
+pub mod discovery;
+pub mod net;
 pub mod oui;
+pub mod path;
+pub mod perf;
 pub mod wifi;
 
 pub use error::{ApiError, ApiResult};
