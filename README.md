@@ -30,6 +30,14 @@ A built-in **demo office** (42 × 26 m, five APs, a crowded neighbourhood, an ev
 
 On Windows 11 24H2 and later, Wi-Fi scanning requires *Location → Let desktop apps access your location*. WhyLag detects this and links to the setting.
 
+## Web quick test
+
+`web/` is a zero-install page that runs a speed and lag-under-load test in the browser (M-Lab ndt7), grades the connection, creates a share card and points people to the app. It is published to GitHub Pages by `.github/workflows/pages.yml` (enable *Settings → Pages → Source: GitHub Actions* once). Add `?demo` to the URL for a simulated run.
+
+```bash
+npm ci --prefix web && npm --prefix web run dev   # http://localhost:5174
+```
+
 ## Install
 
 Download the installer for your system from [Releases](https://github.com/0xgle/whylag/releases): `.exe`/`.msi` for Windows, `.dmg` for macOS, `.AppImage`/`.deb` for Linux.
@@ -63,6 +71,7 @@ npm --prefix ui run typecheck
 ## Architecture
 
 ```
+web                     Browser quick test (viral entry point), static site
 crates/whylag-core      Rust engine: every scanner, test and analysis, one API dispatcher
 crates/whylag-devserver HTTP bridge to the engine for browser development
 src-tauri               Desktop shell (Tauri 2): forwards UI calls to the engine
